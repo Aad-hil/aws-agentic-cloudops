@@ -54,25 +54,83 @@ Application telemetry
 
 ### Phase 2 — Application Registry
 
-- [ ] Registry table
-- [ ] Application resource metadata
-- [ ] Dependency graph
-- [ ] Automated resource discovery
+- [x] Registry table
+- [x] Application resource metadata
+- [x] Dependency graph
+- [x] Registry API
+- [x] Application-scoped resource discovery
 
-### Future phases
+### Phase 3 — Specialist Investigation Agents
 
+#### Observability Agent — COMPLETE
+
+- [x] Application Registry integration
+- [x] Dynamic Lambda discovery
+- [x] CloudWatch Logs investigation
+- [x] Recent-log pagination and newest-event selection
+- [x] CloudWatch Alarm investigation
+- [x] Lambda metrics investigation
+- [x] Structured findings
+- [x] Common Evidence Contract
+- [x] Incident failure test successfully detects Lambda errors
+
+#### Storage Agent — COMPLETE
+
+- [x] Application Registry integration
+- [x] Dynamic S3 resource discovery
+- [x] S3 bucket investigation
+- [x] Object/activity investigation
+- [x] DynamoDB resource investigation
+- [x] EventBridge resource/rule investigation
+- [x] Structured findings
+- [x] Common Evidence Contract
+- [x] Tested against the Customer Analytics application resources
+
+### Phase 4 — Incident Orchestration — NEXT
+
+- [ ] Shared incident state DynamoDB table
+- [ ] Incident schema
 - [ ] CloudOps Manager
-- [ ] Observability Agent
-- [ ] Storage Agent
+- [ ] Incident creation
+- [ ] Investigation planning
+- [ ] Specialist delegation
+- [ ] Evidence aggregation
+- [ ] Incident lifecycle/state transitions
+
+### Phase 5 — Multi-Agent Reasoning
+
+- [ ] Agent-to-agent communication
+- [ ] Evidence synthesis
+- [ ] Competing hypotheses
+- [ ] Hypothesis validation
+- [ ] Critic / challenge agent
+- [ ] Root-cause assessment
+- [ ] Confidence and uncertainty representation
+
+### Phase 6 — Additional Specialists
+
 - [ ] Infrastructure Agent
 - [ ] Knowledge / Architecture Agent
-- [ ] Remediation Agent
 - [ ] Bedrock Knowledge Base / RAG
-- [ ] Shared incident state
-- [ ] Agent collaboration and hypothesis validation
+
+EC2/VPC infrastructure will be introduced when the Infrastructure Agent needs realistic infrastructure investigation scenarios.
+
+### Phase 7 — Remediation and Safety
+
+- [ ] Remediation planning
 - [ ] Human approval workflow
-- [ ] Remediation verification
+- [ ] Remediation Agent
+- [ ] Safe execution tools
+- [ ] Rollback information
+- [ ] Post-remediation verification
+
+### Phase 8 — Incident Memory and Evaluation
+
 - [ ] Incident memory
+- [ ] Historical incident retrieval
+- [ ] Evaluation dataset
+- [ ] End-to-end evaluation
+- [ ] Operational dashboard
 
 ## Engineering principles
 
@@ -80,10 +138,12 @@ Application telemetry
 - Least-privilege IAM
 - Evidence before conclusions
 - Specialized agents instead of one general agent
+- Common Evidence Contract between specialist agents and the Manager
 - Human approval for high-impact remediation
 - Verification after remediation
 - AWS resources reproducible through infrastructure as code
 - GitHub repository as the source of truth
+- AWS is the execution environment
 
 ## Repository structure
 
@@ -112,7 +172,12 @@ Do not commit:
 
 Use environment variables, IAM roles, AWS Secrets Manager, or other appropriate secret-management mechanisms instead.
 
+## Current checkpoint
+
+The target application, Application Registry, Observability Agent, Storage Agent, and Common Evidence Contract are implemented.
+
+**The next implementation step is the shared Incident State DynamoDB table, followed by the CloudOps Manager.**
+
 ## Status
 
 POC in active development.
-

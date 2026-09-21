@@ -13,7 +13,6 @@ The POC currently implements an event-driven Customer Analytics Platform.
                    v           v
                   S3        DynamoDB
 
-
                   S3
                   |
            Object Created
@@ -49,7 +48,7 @@ Environment=poc
 ManagedBy=cloudops-ai
 ```
 
-## Implemented flow
+## Implemented application flow
 
 1. A client invokes `GET /health` through API Gateway.
 2. API Gateway invokes `customer-analytics-api`.
@@ -58,6 +57,61 @@ ManagedBy=cloudops-ai
 5. EventBridge invokes `customer-analytics-worker`.
 6. The worker records the upload event in `customer-analytics-data`.
 7. Lambda logs provide CloudWatch telemetry.
+
+## CloudOps investigation architecture
+
+The Application Registry provides the application boundary to specialist agents.
+
+```text
+                    Application Registry
+                            |
+              +-------------+-------------+
+              |                           |
+              v                           v
+     Observability Agent           Storage Agent
+              |                           |
+       +------+------+              +-----+------+
+       |      |      |              |     |      |
+      Logs  Alarms Metrics          S3  DynamoDB EventBridge
+       |      |      |              |     |      |
+       +------+------+              +-----+------+
+              |                           |
+              +-------------+-------------+
+                            |
+                            v
+                    Common Evidence
+                       Contract
+                            |
+                            v
+                    CloudOps Manager
+                    (next phase)
+```
+
+## Current implementation boundary
+
+Implemented:
+
+- Target application
+- Application Registry
+- Observability Agent
+- Storage Agent
+- Common Evidence Contract
+
+Next:
+
+- Shared incident state
+- CloudOps Manager
+- Specialist delegation
+- Evidence aggregation
+
+Later:
+
+- Multi-agent hypothesis validation
+- Infrastructure and Knowledge agents
+- RAG
+- Human-approved remediation
+- Verification
+- Incident memory
 
 ## Design direction
 

@@ -1,0 +1,76 @@
+{
+  "application_id": "customer-analytics",
+  "name": "Customer Analytics Platform",
+  "environment": "poc",
+  "region": "us-east-1",
+  "status": "active",
+  "tags": {
+    "Application": "customer-analytics",
+    "Environment": "poc",
+    "ManagedBy": "cloudops-ai"
+  },
+  "resources": [
+    {
+      "service": "s3",
+      "resource_id": "customer-analytics-upload-aadhil-poc",
+      "role": "application-storage"
+    },
+    {
+      "service": "lambda",
+      "resource_id": "customer-analytics-api",
+      "role": "api"
+    },
+    {
+      "service": "lambda",
+      "resource_id": "customer-analytics-worker",
+      "role": "background-worker"
+    },
+    {
+      "service": "dynamodb",
+      "resource_id": "customer-analytics-data",
+      "role": "application-database"
+    },
+    {
+      "service": "apigateway",
+      "resource_id": "customer-analytics-api",
+      "role": "api-entrypoint"
+    },
+    {
+      "service": "eventbridge",
+      "resource_id": "customer-analytics-s3-upload",
+      "role": "event-routing"
+    }
+  ],
+  "dependencies": [
+    {
+      "source": "api-gateway",
+      "target": "customer-analytics-api",
+      "relationship": "invokes"
+    },
+    {
+      "source": "customer-analytics-api",
+      "target": "customer-analytics-upload-aadhil-poc",
+      "relationship": "writes-to"
+    },
+    {
+      "source": "customer-analytics-api",
+      "target": "customer-analytics-data",
+      "relationship": "reads-writes"
+    },
+    {
+      "source": "customer-analytics-upload-aadhil-poc",
+      "target": "eventbridge:customer-analytics-s3-upload",
+      "relationship": "emits-event"
+    },
+    {
+      "source": "eventbridge:customer-analytics-s3-upload",
+      "target": "customer-analytics-worker",
+      "relationship": "invokes"
+    },
+    {
+      "source": "customer-analytics-worker",
+      "target": "customer-analytics-data",
+      "relationship": "writes-to"
+    }
+  ]
+}

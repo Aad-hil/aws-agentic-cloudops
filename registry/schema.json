@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Application Registry",
+  "type": "object",
+  "required": [
+    "application_id",
+    "name",
+    "environment",
+    "region",
+    "status",
+    "tags",
+    "resources",
+    "dependencies"
+  ],
+  "properties": {
+    "application_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "environment": {
+      "type": "string"
+    },
+    "region": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "inactive"]
+    },
+    "tags": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["service", "resource_id", "role"],
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "resource_id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "arn": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "relationship"],
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "relationship": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

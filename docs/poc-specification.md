@@ -70,6 +70,24 @@ Region: `us-east-1`
 
 EC2/VPC infrastructure will be introduced later when the Infrastructure Agent needs realistic infrastructure investigation scenarios.
 
+### Phase 2 — Application Registry
+
+The application boundary is represented by an Application Registry stored in DynamoDB.
+
+Registry table:
+
+`customer-analytics-registry`
+
+Registry API:
+
+`customer-analytics-registry-api`
+
+Current operation:
+
+`get_application(application_id)`
+
+The Registry API is intentionally read-only and has only `dynamodb:GetItem` permission on the registry table.
+
 ### Safety model
 
 High-impact or destructive remediation actions require explicit human approval. Agents should present evidence, uncertainty, proposed action, risk, and rollback information before execution.

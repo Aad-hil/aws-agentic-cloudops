@@ -1076,7 +1076,7 @@ def build_findings(
                 evidence_ref=(
                     "evidence.eventbridge"
                 )
-            )
+            ))
 
         elif pattern_validation.get(
             "status"

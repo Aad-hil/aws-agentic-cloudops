@@ -92,7 +92,7 @@ def build_investigation_plan(reported_symptoms):
         {
             "task_id": "TASK-004",
             "agent": "storage-agent",
-            "operation": "investigate_storage",
+            "operation": "investigate_all",
             "status": "pending",
         },
     ]
@@ -160,7 +160,7 @@ def investigate_incident(incident_id):
         ("observability-agent", OBSERVABILITY_FUNCTION_NAME,
          ["investigate_logs", "get_metrics", "get_alarms"]),
         ("storage-agent", STORAGE_FUNCTION_NAME,
-         ["investigate_storage"]),
+         ["investigate_all"]),
     ]
 
     for agent_name, function_name, operations in specialists:

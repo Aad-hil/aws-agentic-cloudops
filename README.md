@@ -196,7 +196,7 @@ The target application, Application Registry, Observability Agent, Storage Agent
 
 The Manager has been validated in AWS through a clean end-to-end incident investigation. All four specialist tasks completed, findings were persisted from both Observability and Storage Agents, and four compact evidence records were aggregated into shared incident state. Phase 4 is complete.
 
-Phase 5A is also validated: Nova 2 Lite generates competing hypotheses through an inference profile, the Manager parses and validates the JSON, checks finding references, and persists the hypotheses. The validated incident is `INC-AF76D3C3`/the current test incident `INC-AF76D3C6` as applicable; use the AWS incident ID shown by the test environment as the source of truth.
+Phase 5A is also validated: Nova 2 Lite generates competing hypotheses through an inference profile, the Manager parses and validates the JSON, checks finding references, and persists the hypotheses. The validated incident is use the AWS incident ID shown by the test environment as the source of truth.
 
 Phase 5B has started with the independent Critic Agent. The next step is deploying and validating it against `INC-AF76D3C6`, especially the incorrect inference that zero returned metric datapoints means zero Lambda invocations.
 

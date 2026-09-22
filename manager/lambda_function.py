@@ -618,11 +618,20 @@ OUTPUT
 42. The rationale must explain why the evidence does or does not support the hypothesis and must explicitly acknowledge important evidence gaps.
 """.strip()
 
+    valid_finding_ids = sorted(collect_valid_finding_ids(reasoning_input))
+
     user_prompt = (
         "Analyze this incident using ONLY the supplied incident context and specialist evidence. "
         "Generate multiple plausible causal hypotheses when the evidence does not distinguish between causes. "
-        "Do not treat missing telemetry as proof of absence."
-        "\n\nINCIDENT EVIDENCE:\n"
+        "Do not treat missing telemetry as proof of absence. "
+        "IMPORTANT: supporting_findings and contradicting_findings are strict references to finding IDs only. "
+        "Use ONLY values from the explicit FINDING ID ALLOWLIST below. "
+        "Never use evidence_id values, task IDs, delegation IDs, operation names, evidence summaries, or phrases "
+        "such as 'get_alarms completed' as finding references. "
+        "If no finding ID provides causal support, return an empty array. "
+        "\n\nFINDING ID ALLOWLIST:\n"
+        + json.dumps(valid_finding_ids)
+        + "\n\nINCIDENT EVIDENCE:\n"
         + json.dumps(reasoning_input, default=str)
     )
 

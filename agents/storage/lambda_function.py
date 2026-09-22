@@ -482,7 +482,7 @@ def validate_eventbridge_pattern(
         "detail-type": "Object Created",
         "source": "aws.s3",
         "account": "000000000000",
-        "time": utc_timestamp(),
+        "time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "region": "us-east-1",
         "resources": [],
         "detail": {

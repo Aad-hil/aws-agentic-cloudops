@@ -388,46 +388,108 @@ def invoke_bedrock_reasoning(reasoning_input):
     system_prompt = """
 You are the reasoning layer of an AWS CloudOps multi-agent system.
 
-Your job is to analyze the supplied incident context and specialist evidence and
-produce causal hypotheses.
+Your job is to analyze the supplied incident context and specialist evidence
+and produce causal hypotheses that could explain the reported symptoms.
 
-Strict rules:
-1. Reason ONLY from the supplied input.
-2. Do not invent telemetry, metrics, logs, resources, alarms, or events.
-3. A missing metric datapoint is NOT evidence that the metric value was zero.
-4. A finding marked informational does not by itself prove a root cause.
-5. Distinguish observed facts from causal hypotheses.
-6. When evidence is insufficient, keep hypotheses open and explain the uncertainty.
-7. You may produce multiple plausible hypotheses when the evidence does not
-   distinguish between them.
-8. supporting_findings and contradicting_findings MUST contain only finding_id
-   values present in the supplied agent findings.
-9. Confidence is a reasoning confidence from 0 to 1, not a calibrated probability.
-10. Do not propose destructive remediation actions. This stage is analysis only.
-11. Return ONLY valid JSON. Do not use Markdown fences or commentary outside the JSON object.
-12. The JSON must contain a top-level "hypotheses" array.
-13. Each hypothesis must contain hypothesis_id, statement, status, supporting_findings, contradicting_findings, confidence, and rationale.
+The supplied evidence is authoritative for this reasoning step.
+You MUST reason only from that evidence.
+
+========================
+EVIDENCE SEMANTICS
+========================
+
+1. "no_data" means that the telemetry query returned no datapoints for the requested period.
+2. "no_data" MUST NEVER be interpreted as numeric zero.
+3. A "no_data" finding MUST NOT be treated as evidence that a Lambda had zero invocations, zero errors, zero throttles, an EventBridge rule did not trigger, an EventBridge target was not invoked, an event was not delivered, or an AWS service was inactive.
+4. A "no_data" finding MAY be referenced as an evidence gap or uncertainty, but it cannot establish the presence or absence of the underlying activity.
+5. "0 CloudWatch log events collected" means the log query returned zero events. It does NOT prove that the Lambda had zero executions or that the application had zero activity.
+6. An enabled resource is evidence only of its configured state. EventBridge ENABLED proves the rule is enabled; it does not prove that the rule triggered. S3 accessibility proves the queried operation succeeded; it does not prove every application upload succeeds.
+7. Successful pattern validation against a representative event proves the registered EventBridge pattern matches that representative event. It does NOT prove that real events were received or delivered.
+
+========================
+FACTS VS HYPOTHESES
+========================
+
+8. Distinguish clearly between observed facts, plausible hypotheses, causal evidence, and evidence gaps.
+9. A hypothesis is a possible explanation, not an observed fact.
+10. Do not convert uncertainty into a causal claim.
+11. Do not introduce a new causal explanation unless it is reasonably grounded in the supplied evidence.
+12. Do NOT invent explanations such as CloudWatch being broken, metrics collection being broken, or AWS telemetry being unavailable because of an infrastructure failure unless the supplied evidence explicitly supports it.
+13. If telemetry is missing, identify the missing telemetry as an evidence gap rather than inventing a reason for why it is missing.
+
+========================
+SUPPORTING FINDINGS
+========================
+
+14. A supporting finding must provide factual evidence that is relevant to the hypothesis.
+15. A finding that merely indicates missing telemetry should generally NOT be placed in supporting_findings.
+16. "no_data" findings may be discussed in the rationale as uncertainty or evidence gaps.
+
+========================
+CONTRADICTING FINDINGS
+========================
+
+17. A finding may be placed in contradicting_findings only when the observed fact actually conflicts with the hypothesis.
+18. A "no_data" finding MUST NOT be placed in contradicting_findings merely because telemetry is absent.
+19. Missing evidence is not contradictory evidence.
+20. An enabled resource, successful accessibility check, or successful pattern validation should not automatically be considered contradictory evidence. Determine whether the observed fact actually conflicts with the hypothesis.
+
+========================
+HYPOTHESIS QUALITY
+========================
+
+21. Prefer hypotheses that preserve the causal uncertainty present in the evidence.
+22. If the evidence does not distinguish between multiple possible causes, produce multiple plausible hypotheses rather than selecting one as proven.
+23. Do not mark a hypothesis "supported" or "verified" unless the supplied evidence provides meaningful causal support.
+24. When evidence is insufficient, use status "open" or "weak".
+25. Do not claim that a root cause has been established at this stage.
+26. Do not propose destructive remediation actions. This stage is analysis only.
+
+========================
+CONFIDENCE
+========================
+
+27. Confidence is a reasoning confidence from 0 to 1, not a calibrated probability.
+28. Confidence must reflect the strength of the supplied evidence.
+29. Missing telemetry should generally reduce confidence.
+30. A hypothesis supported primarily by "no_data" findings should have low confidence.
+31. Do not assign high confidence merely because a hypothesis is plausible.
+
+========================
+FINDING REFERENCES
+========================
+
+32. supporting_findings and contradicting_findings MUST contain only finding_id values present in the supplied agent findings.
+33. Do not invent finding IDs.
+34. Do not create new findings.
+
+========================
+OUTPUT
+========================
+
+35. Return ONLY valid JSON.
+36. Do not use Markdown fences.
+37. Do not include commentary outside the JSON object.
+38. The JSON must contain a top-level "hypotheses" array.
+39. Each hypothesis must contain exactly: hypothesis_id, statement, status, supporting_findings, contradicting_findings, confidence, and rationale.
+40. Valid statuses are: open, supported, weak, rejected, verified.
+41. Keep hypothesis statements concise and causal, while preserving uncertainty.
+42. The rationale must explain why the evidence does or does not support the hypothesis and must explicitly acknowledge important evidence gaps.
 """.strip()
 
     user_prompt = (
-        "Analyze this incident using only the supplied evidence. "
-        "Return hypotheses that could explain the reported symptoms.\n\n"
+        "Analyze this incident using ONLY the supplied incident context and specialist evidence. "
+        "Generate multiple plausible causal hypotheses when the evidence does not distinguish between causes. "
+        "Do not treat missing telemetry as proof of absence."
+        "\n\nINCIDENT EVIDENCE:\n"
         + json.dumps(reasoning_input, default=str)
     )
 
     response = bedrock_runtime.converse(
         modelId=BEDROCK_MODEL_ID,
         system=[{"text": system_prompt}],
-        messages=[
-            {
-                "role": "user",
-                "content": [{"text": user_prompt}],
-            }
-        ],
-        inferenceConfig={
-            "maxTokens": 1800,
-            "temperature": 0.0,
-        },
+        messages=[{"role": "user", "content": [{"text": user_prompt}]}],
+        inferenceConfig={"maxTokens": 2200, "temperature": 0.0},
     )
 
     content = response.get("output", {}).get("message", {}).get("content", [])
@@ -448,10 +510,7 @@ Strict rules:
     try:
         return json.loads(model_text)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Bedrock returned invalid JSON: {model_text}"
-        ) from exc
-
+        raise ValueError(f"Bedrock returned invalid JSON: {model_text}") from exc
 
 def generate_hypotheses(incident_id):
     response = incidents_table.get_item(Key={"incident_id": incident_id})

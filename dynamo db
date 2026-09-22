@@ -1,0 +1,332 @@
+{
+ "incident_id": "INC-F70EC79C",
+ "actions": [
+ ],
+ "agent_findings": [
+  {
+   "agent": "observability-agent",
+   "application_id": "customer-analytics",
+   "collected_at": "2026-09-22T08:59:57.801081+00:00",
+   "evidence": {
+    "log_groups": {
+     "customer-analytics-api": {
+      "event_count": 0,
+      "events": [
+      ],
+      "log_group": "/aws/lambda/customer-analytics-api"
+     },
+     "customer-analytics-worker": {
+      "event_count": 0,
+      "events": [
+      ],
+      "log_group": "/aws/lambda/customer-analytics-worker"
+     }
+    },
+    "lookback_minutes": 15
+   },
+   "findings": [
+    {
+     "category": "log_activity",
+     "evidence_ref": "evidence.log_groups",
+     "finding_id": "logs-customer-analytics-api-events",
+     "resource_id": "customer-analytics-api",
+     "service": "lambda",
+     "severity": "info",
+     "summary": "0 CloudWatch log events collected"
+    },
+    {
+     "category": "log_activity",
+     "evidence_ref": "evidence.log_groups",
+     "finding_id": "logs-customer-analytics-worker-events",
+     "resource_id": "customer-analytics-worker",
+     "service": "lambda",
+     "severity": "info",
+     "summary": "0 CloudWatch log events collected"
+    }
+   ],
+   "investigation_type": "investigate_logs",
+   "resources_discovered": [
+    {
+     "resource_id": "customer-analytics-api",
+     "role": "api",
+     "service": "lambda"
+    },
+    {
+     "resource_id": "customer-analytics-worker",
+     "role": "background-worker",
+     "service": "lambda"
+    }
+   ]
+  },
+  {
+   "agent": "observability-agent",
+   "application_id": "customer-analytics",
+   "collected_at": "2026-09-22T08:59:58.222759+00:00",
+   "evidence": {
+    "functions": {
+     "customer-analytics-api": {
+      "function_name": "customer-analytics-api",
+      "metrics": {
+       "Duration": {
+        "datapoints": 0,
+        "statistic": "Average",
+        "value": 0
+       },
+       "Errors": {
+        "datapoints": 0,
+        "statistic": "Sum",
+        "value": 0
+       },
+       "Invocations": {
+        "datapoints": 0,
+        "statistic": "Sum",
+        "value": 0
+       },
+       "Throttles": {
+        "datapoints": 0,
+        "statistic": "Sum",
+        "value": 0
+       }
+      },
+      "role": "api"
+     },
+     "customer-analytics-worker": {
+      "function_name": "customer-analytics-worker",
+      "metrics": {
+       "Duration": {
+        "datapoints": 0,
+        "statistic": "Average",
+        "value": 0
+       },
+       "Errors": {
+        "datapoints": 0,
+        "statistic": "Sum",
+        "value": 0
+       },
+       "Invocations": {
+        "datapoints": 0,
+        "statistic": "Sum",
+        "value": 0
+       },
+       "Throttles": {
+        "datapoints": 0,
+        "statistic": "Sum",
+        "value": 0
+       }
+      },
+      "role": "background-worker"
+     }
+    },
+    "lookback_minutes": 15
+   },
+   "findings": [
+    {
+     "category": "lambda_errors",
+     "evidence_ref": "evidence.functions",
+     "finding_id": "metrics-customer-analytics-api-no-errors",
+     "resource_id": "customer-analytics-api",
+     "service": "lambda",
+     "severity": "info",
+     "summary": "Lambda reported no errors in the collected period"
+    },
+    {
+     "category": "lambda_invocations",
+     "evidence_ref": "evidence.functions",
+     "finding_id": "metrics-customer-analytics-api-invocations",
+     "resource_id": "customer-analytics-api",
+     "service": "lambda",
+     "severity": "info",
+     "summary": "Lambda reported 0 invocations"
+    },
+    {
+     "category": "lambda_errors",
+     "evidence_ref": "evidence.functions",
+     "finding_id": "metrics-customer-analytics-worker-no-errors",
+     "resource_id": "customer-analytics-worker",
+     "service": "lambda",
+     "severity": "info",
+     "summary": "Lambda reported no errors in the collected period"
+    },
+    {
+     "category": "lambda_invocations",
+     "evidence_ref": "evidence.functions",
+     "finding_id": "metrics-customer-analytics-worker-invocations",
+     "resource_id": "customer-analytics-worker",
+     "service": "lambda",
+     "severity": "info",
+     "summary": "Lambda reported 0 invocations"
+    }
+   ],
+   "investigation_type": "get_metrics",
+   "resources_discovered": [
+    {
+     "resource_id": "customer-analytics-api",
+     "role": "api",
+     "service": "lambda"
+    },
+    {
+     "resource_id": "customer-analytics-worker",
+     "role": "background-worker",
+     "service": "lambda"
+    }
+   ]
+  },
+  {
+   "agent": "observability-agent",
+   "application_id": "customer-analytics",
+   "collected_at": "2026-09-22T08:59:58.762184+00:00",
+   "evidence": {
+    "alarms": [
+    ],
+    "summary": {
+     "in_alarm": 0,
+     "insufficient_data": 0,
+     "ok": 0,
+     "total": 0
+    }
+   },
+   "findings": [
+   ],
+   "investigation_type": "get_alarms",
+   "resources_discovered": [
+    {
+     "resource_id": "customer-analytics-api",
+     "role": "api",
+     "service": "lambda"
+    },
+    {
+     "resource_id": "customer-analytics-worker",
+     "role": "background-worker",
+     "service": "lambda"
+    }
+   ]
+  }
+ ],
+ "application_context": {
+  "dependency_count": 6,
+  "name": "Customer Analytics Platform",
+  "resource_count": 6
+ },
+ "application_id": "customer-analytics",
+ "approval": {
+  "required": false,
+  "status": "not_required"
+ },
+ "created_at": "2026-09-22T08:57:44.841580+00:00",
+ "decision": null,
+ "delegations": [
+  {
+   "agent": "observability-agent",
+   "completed_at": "2026-09-22T08:59:58.145657+00:00",
+   "delegation_id": "DEL-F23ADEF3",
+   "operation": "investigate_logs",
+   "requested_at": "2026-09-22T08:59:57.501870+00:00",
+   "status": "completed",
+   "task_id": "TASK-001"
+  },
+  {
+   "agent": "observability-agent",
+   "completed_at": "2026-09-22T08:59:58.680247+00:00",
+   "delegation_id": "DEL-B80D222F",
+   "operation": "get_metrics",
+   "requested_at": "2026-09-22T08:59:58.145714+00:00",
+   "status": "completed",
+   "task_id": "TASK-002"
+  },
+  {
+   "agent": "observability-agent",
+   "completed_at": "2026-09-22T08:59:58.808664+00:00",
+   "delegation_id": "DEL-EB5A64D1",
+   "operation": "get_alarms",
+   "requested_at": "2026-09-22T08:59:58.680305+00:00",
+   "status": "completed",
+   "task_id": "TASK-003"
+  },
+  {
+   "agent": "storage-agent",
+   "completed_at": "2026-09-22T08:59:58.829797+00:00",
+   "delegation_id": "DEL-C31FDF06",
+   "error": "Specialist returned status 400: {\"error\": \"Unsupported operation\", \"supported_operations\": [\"investigate_s3\", \"investigate_dynamodb\", \"investigate_eventbridge\", \"investigate_all\"], \"request_id\": \"afa244b2-83e9-4d63-9476-32d6d6b08ea6\"}",
+   "operation": "investigate_storage",
+   "requested_at": "2026-09-22T08:59:58.808722+00:00",
+   "status": "failed",
+   "task_id": "TASK-004"
+  }
+ ],
+ "environment": "poc",
+ "evidence": [
+  {
+   "agent": "observability-agent",
+   "artifact_uri": null,
+   "collected_at": "2026-09-22T08:59:57.801081+00:00",
+   "evidence_id": "EVD-0CDC05CD",
+   "investigation_type": "investigate_logs",
+   "source": "observability-agent",
+   "summary": "investigate_logs completed"
+  },
+  {
+   "agent": "observability-agent",
+   "artifact_uri": null,
+   "collected_at": "2026-09-22T08:59:58.222759+00:00",
+   "evidence_id": "EVD-8606E5F6",
+   "investigation_type": "get_metrics",
+   "source": "observability-agent",
+   "summary": "get_metrics completed"
+  },
+  {
+   "agent": "observability-agent",
+   "artifact_uri": null,
+   "collected_at": "2026-09-22T08:59:58.762184+00:00",
+   "evidence_id": "EVD-E6E07E2E",
+   "investigation_type": "get_alarms",
+   "source": "observability-agent",
+   "summary": "get_alarms completed"
+  }
+ ],
+ "hypotheses": [
+ ],
+ "investigation_plan": [
+  {
+   "agent": "observability-agent",
+   "created_at": "2026-09-22T08:57:44.841645+00:00",
+   "operation": "investigate_logs",
+   "status": "completed",
+   "task_id": "TASK-001"
+  },
+  {
+   "agent": "observability-agent",
+   "created_at": "2026-09-22T08:57:44.841645+00:00",
+   "operation": "get_metrics",
+   "status": "completed",
+   "task_id": "TASK-002"
+  },
+  {
+   "agent": "observability-agent",
+   "created_at": "2026-09-22T08:57:44.841645+00:00",
+   "operation": "get_alarms",
+   "status": "completed",
+   "task_id": "TASK-003"
+  },
+  {
+   "agent": "storage-agent",
+   "created_at": "2026-09-22T08:57:44.841645+00:00",
+   "operation": "investigate_storage",
+   "status": "failed",
+   "task_id": "TASK-004"
+  }
+ ],
+ "last_event": "specialist_investigation_completed",
+ "open_questions": [
+ ],
+ "region": "us-east-1",
+ "remediation": null,
+ "reported_symptoms": [
+  "s3 uploads are failing",
+  "Cloudwatch is showing errors"
+ ],
+ "severity": "medium",
+ "state_version": 4,
+ "status": "analysis",
+ "updated_at": "2026-09-22T08:59:58.829860+00:00",
+ "verification": null
+}

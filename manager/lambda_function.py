@@ -27,7 +27,7 @@ STORAGE_FUNCTION_NAME = os.getenv("STORAGE_FUNCTION_NAME", "customer-analytics-s
 
 BEDROCK_MODEL_ID = os.getenv(
     "BEDROCK_MODEL_ID",
-    "amazon.nova-2-lite-v1:0",
+    "us.amazon.nova-2-lite-v1:0",
 )
 
 dynamodb = boto3.resource("dynamodb")
@@ -401,6 +401,9 @@ Strict rules:
    values present in the supplied agent findings.
 9. Confidence is a reasoning confidence from 0 to 1, not a calibrated probability.
 10. Do not propose destructive remediation actions. This stage is analysis only.
+11. Return ONLY valid JSON. Do not use Markdown fences or commentary outside the JSON object.
+12. The JSON must contain a top-level "hypotheses" array.
+13. Each hypothesis must contain hypothesis_id, statement, status, supporting_findings, contradicting_findings, confidence, and rationale.
 """.strip()
 
     user_prompt = (
@@ -422,19 +425,7 @@ Strict rules:
         ],
         inferenceConfig={
             "maxTokens": 1800,
-            "temperature": 0.2,
-        },
-        outputConfig={
-            "textFormat": {
-                "type": "json_schema",
-                "structure": {
-                    "jsonSchema": {
-                        "name": "cloudops_hypotheses",
-                        "description": "Causal hypotheses grounded in supplied CloudOps evidence.",
-                        "schema": json.dumps(HYPOTHESIS_SCHEMA),
-                    }
-                },
-            }
+            "temperature": 0.0,
         },
     )
 
@@ -443,7 +434,22 @@ Strict rules:
     if not text_parts:
         raise ValueError("Bedrock returned no text content")
 
-    return json.loads("".join(text_parts))
+    model_text = "".join(text_parts).strip()
+
+    if model_text.startswith("```"):
+        lines = model_text.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        model_text = "\n".join(lines).strip()
+
+    try:
+        return json.loads(model_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Bedrock returned invalid JSON: {model_text}"
+        ) from exc
 
 
 def generate_hypotheses(incident_id):

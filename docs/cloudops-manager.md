@@ -43,6 +43,7 @@ Environment variables:
 | `REGISTRY_FUNCTION_NAME` | `customer-analytics-registry-api` |
 | `DEFAULT_ENVIRONMENT` | `poc` |
 | `DEFAULT_REGION` | `us-east-1` |
+| `ROOT_CAUSE_FUNCTION_NAME` | `customer-analytics-root-cause-assessment-agent` |
 
 ## v1 responsibilities
 
@@ -173,3 +174,34 @@ The same DynamoDB item also persisted three Observability agent findings and thr
 The Storage delegation exposed an integration mismatch: the Manager originally requested `investigate_storage`, while the deployed Storage Agent accepts `investigate_s3`, `investigate_dynamodb`, `investigate_eventbridge`, and `investigate_all`. This caused `TASK-004` to fail with HTTP-style status 400. The Manager has now been corrected to request `investigate_all`.
 
 A new incident investigation must be run after deploying the updated Manager to validate Storage Agent findings and evidence end-to-end.
+
+
+## Root cause orchestration
+
+The Manager now supports:
+
+```json
+{
+  "operation": "assess_root_cause",
+  "incident_id": "INC-XXXXXXXX"
+}
+```
+
+The Manager delegates root cause assessment to the Root Cause Assessment Agent.
+
+If the assessment returns `insufficient_evidence`, the Manager translates the returned `required_investigations` descriptions into concrete specialist operations.
+
+Current deterministic mappings include:
+
+| Evidence need | Specialist operation |
+|---|---|
+| S3/upload evidence | Storage Agent: `investigate_s3` |
+| CloudWatch/Lambda logs | Observability Agent: `investigate_logs` |
+| EventBridge delivery/pattern evidence | Storage Agent: `investigate_eventbridge` |
+| Expected Lambda invocation pattern | Observability Agent: `get_metrics` |
+
+The Manager creates targeted investigation tasks, delegates them, persists their findings/evidence, and returns the incident to `analysis`.
+
+The Manager does not invent the investigation results. Specialist agents remain responsible for AWS telemetry collection.
+
+Targeted investigations are deduplicated by agent + operation so the same operation is not repeatedly added to the incident plan.

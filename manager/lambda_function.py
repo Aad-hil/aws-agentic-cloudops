@@ -320,31 +320,70 @@ def collect_valid_finding_ids(reasoning_input):
     return finding_ids
 
 
-def _collect_no_data_finding_ids(reasoning_input):
-    ids = set()
+def _classify_finding_semantics(finding):
+    """
+    Return the semantic class of a finding.
+
+    New specialists should provide evidence_semantics explicitly.
+    Legacy findings are classified from their existing IDs/categories so
+    currently deployed specialists remain compatible during migration.
+    """
+    explicit = finding.get("evidence_semantics")
+    if explicit:
+        return explicit
+
+    finding_id = str(finding.get("finding_id", "")).lower()
+    summary = str(finding.get("summary", "")).lower()
+    category = str(finding.get("category", "")).lower()
+
+    if (
+        "no-data" in finding_id
+        or "no_data" in finding_id
+        or "no datapoints" in summary
+        or "activity cannot be inferred" in summary
+    ):
+        return "telemetry_gap"
+
+    if (
+        "logs-" in finding_id
+        and (
+            "zero cloudwatch log events" in summary
+            or "no cloudwatch log events" in summary
+            or "returned zero log events" in summary
+        )
+    ):
+        return "absence_only"
+
+    if category in {"rule_state", "pattern_validation"}:
+        return "configuration_state"
+
+    if category == "bucket_accessibility":
+        if "accessible" in finding_id or "accessible" in summary:
+            return "access_observation"
+
+    return "observed_fact"
+
+
+def collect_finding_semantics(reasoning_input):
+    semantics = {}
+
     for agent_result in reasoning_input.get("agent_findings", []):
         for finding in agent_result.get("findings", []):
             finding_id = finding.get("finding_id")
-            summary = str(finding.get("summary", "")).lower()
-            category = str(finding.get("category", "")).lower()
-            if finding_id and (
-                "no_data" in finding_id
-                or "no datapoints" in summary
-                or "cannot be inferred" in summary
-                or "activity cannot be inferred" in summary
-                or ("telemetry" in category and "telemetry" in category)
-            ):
-                ids.add(finding_id)
-    return ids
+            if finding_id:
+                semantics[finding_id] = _classify_finding_semantics(finding)
+
+    return semantics
 
 
 def validate_hypotheses(payload, valid_finding_ids, reasoning_input):
     """
     Validate and normalize Bedrock hypothesis output.
 
-    The model may reason about missing telemetry, but missing telemetry is
-    never accepted as causal evidence. The Manager enforces this boundary
-    deterministically so downstream agents cannot mistake no_data for zero.
+    Only causal_candidate, observed_fact, and contradictory_fact findings
+    may participate in causal support/contradiction. Evidence gaps,
+    absence-only observations, configuration state, and access observations
+    remain contextual evidence rather than causal proof.
     """
     if not isinstance(payload, dict):
         raise ValueError("Bedrock response must be a JSON object")
@@ -354,11 +393,13 @@ def validate_hypotheses(payload, valid_finding_ids, reasoning_input):
         raise ValueError("Bedrock response must contain a hypotheses array")
 
     allowed_statuses = {"open", "supported", "weak", "rejected", "verified"}
-
-    # Finding IDs whose underlying evidence explicitly represents missing
-    # telemetry. These may be discussed in rationale but cannot support or
-    # contradict a causal hypothesis.
-    no_data_finding_ids = _collect_no_data_finding_ids(reasoning_input)
+    finding_semantics = collect_finding_semantics(reasoning_input)
+    non_causal_semantics = {
+        "absence_only",
+        "telemetry_gap",
+        "configuration_state",
+        "access_observation",
+    }
 
     normalized = []
 
@@ -393,8 +434,6 @@ def validate_hypotheses(payload, valid_finding_ids, reasoning_input):
                 f"hypotheses[{index}].confidence must be a number"
             )
 
-        # Bedrock sometimes serializes numeric values as strings. Normalize
-        # them only when they are unambiguously numeric.
         if isinstance(confidence, str):
             try:
                 confidence = float(confidence.strip())
@@ -430,44 +469,42 @@ def validate_hypotheses(payload, valid_finding_ids, reasoning_input):
                     f"hypotheses[{index}] references unknown finding IDs: {unknown}"
                 )
 
-        supporting = [
-            finding_id
-            for finding_id in hypothesis["supporting_findings"]
-            if finding_id not in no_data_finding_ids
-        ]
-        contradicting = [
-            finding_id
-            for finding_id in hypothesis["contradicting_findings"]
-            if finding_id not in no_data_finding_ids
-        ]
+        supporting = []
+        contradicting = []
+        removed = []
 
-        removed_supporting = [
-            finding_id
-            for finding_id in hypothesis["supporting_findings"]
-            if finding_id in no_data_finding_ids
-        ]
-        removed_contradicting = [
-            finding_id
-            for finding_id in hypothesis["contradicting_findings"]
-            if finding_id in no_data_finding_ids
-        ]
+        for field, target in (
+            ("supporting_findings", supporting),
+            ("contradicting_findings", contradicting),
+        ):
+            for finding_id in hypothesis[field]:
+                semantic = finding_semantics.get(
+                    finding_id,
+                    "observed_fact",
+                )
 
-        if removed_supporting or removed_contradicting:
+                if semantic in non_causal_semantics:
+                    removed.append({
+                        "field": field,
+                        "finding_id": finding_id,
+                        "evidence_semantics": semantic,
+                    })
+                    continue
+
+                target.append(finding_id)
+
+        if removed:
             logger.warning(
                 json.dumps({
-                    "event": "hypothesis_no_data_references_removed",
+                    "event": "hypothesis_non_causal_references_removed",
                     "hypothesis_id": hypothesis["hypothesis_id"],
-                    "removed_supporting_findings": removed_supporting,
-                    "removed_contradicting_findings": removed_contradicting,
+                    "removed_findings": removed,
                 })
             )
 
-        # If a hypothesis has no factual causal support after removing
-        # no_data references, it cannot be represented as supported/verified.
         if not supporting and status in {"supported", "verified"}:
-            status = "weak" if hypothesis["contradicting_findings"] else "open"
+            status = "weak" if contradicting else "open"
 
-        # Missing telemetry alone must never produce high confidence.
         if not supporting and confidence > 0.4:
             confidence = 0.4
 
@@ -477,14 +514,14 @@ def validate_hypotheses(payload, valid_finding_ids, reasoning_input):
         stored["contradicting_findings"] = contradicting
         stored["confidence"] = float(confidence)
 
-        if removed_supporting or removed_contradicting:
-            suffix = (
-                " Manager validation removed missing-telemetry findings from "
-                "causal evidence; the missing telemetry remains an evidence gap."
-            )
+        if removed:
             rationale = str(stored.get("rationale", "")).strip()
-            if suffix.strip() not in rationale:
-                stored["rationale"] = (rationale + suffix).strip()
+            note = (
+                " Manager validation removed non-causal evidence references; "
+                "those observations remain contextual evidence or evidence gaps."
+            )
+            if note.strip() not in rationale:
+                stored["rationale"] = (rationale + note).strip()
 
         normalized.append(stored)
 
@@ -643,7 +680,7 @@ def generate_hypotheses(incident_id):
     incident["last_event"] = "hypotheses_generated"
     incidents_table.put_item(Item=incident)
 
-    return persisted_hypotheses
+    return hypotheses
 
 
 

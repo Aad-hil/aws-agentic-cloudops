@@ -21,6 +21,9 @@ REGISTRY_FUNCTION_NAME = os.getenv(
 DEFAULT_ENVIRONMENT = os.getenv("DEFAULT_ENVIRONMENT", "poc")
 DEFAULT_REGION = os.getenv("DEFAULT_REGION", "us-east-1")
 
+OBSERVABILITY_FUNCTION_NAME = os.getenv("OBSERVABILITY_FUNCTION_NAME", "customer-analytics-observability-agent")
+STORAGE_FUNCTION_NAME = os.getenv("STORAGE_FUNCTION_NAME", "customer-analytics-storage-agent")
+
 dynamodb = boto3.resource("dynamodb")
 incidents_table = dynamodb.Table(INCIDENTS_TABLE_NAME)
 lambda_client = boto3.client("lambda")
@@ -105,6 +108,127 @@ def build_investigation_plan(reported_symptoms):
 
     return plan
 
+
+def invoke_specialist(function_name, operation, incident):
+    payload = {
+        "operation": operation,
+        "incident_id": incident["incident_id"],
+        "application_id": incident["application_id"],
+        "environment": incident["environment"],
+        "region": incident["region"],
+        "reported_symptoms": incident["reported_symptoms"],
+    }
+    response = lambda_client.invoke(
+        FunctionName=function_name,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload).encode("utf-8"),
+    )
+    payload_bytes = response["Payload"].read()
+    specialist_response = json.loads(payload_bytes)
+    if response.get("FunctionError"):
+        raise RuntimeError(f"Specialist Lambda failed: {function_name}")
+    if specialist_response.get("statusCode") not in (None, 200):
+        raise RuntimeError(
+            f"Specialist returned status {specialist_response.get('statusCode')}: "
+            f"{specialist_response.get('body')}"
+        )
+    body = specialist_response.get("body", specialist_response)
+    if isinstance(body, str):
+        try:
+            body = json.loads(body)
+        except json.JSONDecodeError:
+            body = {"raw_response": body}
+    return body
+
+
+def investigate_incident(incident_id):
+    response = incidents_table.get_item(Key={"incident_id": incident_id})
+    incident = response.get("Item")
+    if not incident:
+        raise ValueError(f"Incident not found: {incident_id}")
+
+    incident["status"] = "investigating"
+    incident["updated_at"] = now_iso()
+    incident["state_version"] = int(incident.get("state_version", 1)) + 1
+    incident["last_event"] = "investigation_started"
+
+    incident.setdefault("delegations", [])
+    incident.setdefault("agent_findings", [])
+    incident.setdefault("evidence", [])
+
+    specialists = [
+        ("observability-agent", OBSERVABILITY_FUNCTION_NAME,
+         ["investigate_logs", "get_metrics", "get_alarms"]),
+        ("storage-agent", STORAGE_FUNCTION_NAME,
+         ["investigate_storage"]),
+    ]
+
+    for agent_name, function_name, operations in specialists:
+        for operation in operations:
+            task = next(
+                (t for t in incident.get("investigation_plan", [])
+                 if t.get("operation") == operation),
+                None,
+            )
+            if not task or task.get("status") != "pending":
+                continue
+
+            delegation = {
+                "delegation_id": f"DEL-{uuid4().hex[:8].upper()}",
+                "task_id": task["task_id"],
+                "agent": agent_name,
+                "operation": operation,
+                "requested_at": now_iso(),
+                "completed_at": None,
+                "status": "running",
+            }
+            incident["delegations"].append(delegation)
+
+            try:
+                result = invoke_specialist(function_name, operation, incident)
+                completed_at = now_iso()
+                task["status"] = "completed"
+                delegation["status"] = "completed"
+                delegation["completed_at"] = completed_at
+
+                incident["agent_findings"].append({
+                    "application_id": incident["application_id"],
+                    "agent": agent_name,
+                    "investigation_type": result.get("investigation_type", operation),
+                    "collected_at": result.get("collected_at", completed_at),
+                    "resources_discovered": result.get("resources_discovered", []),
+                    "findings": result.get("findings", []),
+                    "evidence": result.get("evidence", {}),
+                })
+                incident["evidence"].append({
+                    "evidence_id": f"EVD-{uuid4().hex[:8].upper()}",
+                    "agent": agent_name,
+                    "investigation_type": result.get("investigation_type", operation),
+                    "collected_at": result.get("collected_at", completed_at),
+                    "source": agent_name,
+                    "summary": f"{operation} completed",
+                    "artifact_uri": None,
+                })
+            except Exception as exc:
+                logger.exception("Specialist delegation failed")
+                task["status"] = "failed"
+                delegation["status"] = "failed"
+                delegation["completed_at"] = now_iso()
+                delegation["error"] = str(exc)
+
+    all_terminal = all(
+        task.get("status") in {"completed", "failed", "skipped"}
+        for task in incident.get("investigation_plan", [])
+    )
+    incident["status"] = "analysis" if all_terminal else "investigating"
+    incident["updated_at"] = now_iso()
+    incident["state_version"] = int(incident.get("state_version", 1)) + 1
+    incident["last_event"] = (
+        "specialist_investigation_completed"
+        if all_terminal else "specialist_investigation_partial"
+    )
+    incidents_table.put_item(Item=incident)
+    return incident
 
 def create_incident(event):
     application_id = event.get("application_id")
@@ -196,22 +320,38 @@ def lambda_handler(event, context):
 
     operation = event.get("operation", "create_incident")
 
-    if operation != "create_incident":
+    if operation not in {"create_incident", "investigate_incident"}:
         return {
             "statusCode": 400,
             "body": json.dumps({
                 "error": "Unsupported operation",
-                "supported_operations": ["create_incident"],
+                "supported_operations": [
+                    "create_incident",
+                    "investigate_incident",
+                ],
             }),
         }
 
     try:
-        incident = create_incident(event)
+        if operation == "create_incident":
+            incident = create_incident(event)
+            return {
+                "statusCode": 201,
+                "body": json.dumps({
+                    "message": "Incident created",
+                    "incident": incident,
+                }, default=str),
+            }
 
+        incident_id = event.get("incident_id")
+        if not incident_id:
+            raise ValueError("incident_id is required for investigate_incident")
+
+        incident = investigate_incident(incident_id)
         return {
-            "statusCode": 201,
+            "statusCode": 200,
             "body": json.dumps({
-                "message": "Incident created",
+                "message": "Incident investigation completed",
                 "incident": incident,
             }, default=str),
         }

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 import boto3
@@ -24,9 +25,58 @@ DEFAULT_REGION = os.getenv("DEFAULT_REGION", "us-east-1")
 OBSERVABILITY_FUNCTION_NAME = os.getenv("OBSERVABILITY_FUNCTION_NAME", "customer-analytics-observability-agent")
 STORAGE_FUNCTION_NAME = os.getenv("STORAGE_FUNCTION_NAME", "customer-analytics-storage-agent")
 
+BEDROCK_MODEL_ID = os.getenv(
+    "BEDROCK_MODEL_ID",
+    "amazon.nova-2-lite-v1:0",
+)
+
 dynamodb = boto3.resource("dynamodb")
 incidents_table = dynamodb.Table(INCIDENTS_TABLE_NAME)
 lambda_client = boto3.client("lambda")
+bedrock_runtime = boto3.client("bedrock-runtime")
+
+
+HYPOTHESIS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "hypotheses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "hypothesis_id": {"type": "string"},
+                    "statement": {"type": "string"},
+                    "status": {
+                        "type": "string",
+                        "enum": ["open", "supported", "weak", "rejected", "verified"],
+                    },
+                    "supporting_findings": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "contradicting_findings": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "confidence": {"type": "number"},
+                    "rationale": {"type": "string"},
+                },
+                "required": [
+                    "hypothesis_id",
+                    "statement",
+                    "status",
+                    "supporting_findings",
+                    "contradicting_findings",
+                    "confidence",
+                    "rationale",
+                ],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["hypotheses"],
+    "additionalProperties": False,
+}
 
 
 def now_iso():
@@ -233,11 +283,7 @@ def investigate_incident(incident_id):
 
 def build_reasoning_input(incident_id):
     """
-    Build the controlled, read-only payload that will later be supplied to Bedrock.
-
-    This function deliberately does not call Bedrock or perform any AWS action
-    beyond loading the persisted incident state. The reasoning layer must reason
-    only over this explicit evidence boundary.
+    Build the controlled, read-only payload that is supplied to Bedrock.
     """
     response = incidents_table.get_item(Key={"incident_id": incident_id})
     incident = response.get("Item")
@@ -257,6 +303,175 @@ def build_reasoning_input(incident_id):
     }
 
     return reasoning_input
+
+
+def collect_valid_finding_ids(reasoning_input):
+    finding_ids = set()
+
+    for agent_result in reasoning_input.get("agent_findings", []):
+        for finding in agent_result.get("findings", []):
+            finding_id = finding.get("finding_id")
+            if finding_id:
+                finding_ids.add(finding_id)
+
+    return finding_ids
+
+
+def validate_hypotheses(payload, valid_finding_ids):
+    if not isinstance(payload, dict):
+        raise ValueError("Bedrock response must be a JSON object")
+
+    hypotheses = payload.get("hypotheses")
+    if not isinstance(hypotheses, list):
+        raise ValueError("Bedrock response must contain a hypotheses array")
+
+    allowed_statuses = {"open", "supported", "weak", "rejected", "verified"}
+
+    for index, hypothesis in enumerate(hypotheses):
+        if not isinstance(hypothesis, dict):
+            raise ValueError(f"hypotheses[{index}] must be an object")
+
+        required_fields = {
+            "hypothesis_id",
+            "statement",
+            "status",
+            "supporting_findings",
+            "contradicting_findings",
+            "confidence",
+            "rationale",
+        }
+        missing = required_fields - set(hypothesis)
+        if missing:
+            raise ValueError(
+                f"hypotheses[{index}] missing required fields: {sorted(missing)}"
+            )
+
+        if hypothesis["status"] not in allowed_statuses:
+            raise ValueError(
+                f"hypotheses[{index}] has invalid status: {hypothesis['status']}"
+            )
+
+        confidence = hypothesis["confidence"]
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+            raise ValueError(
+                f"hypotheses[{index}].confidence must be a number"
+            )
+        if not 0 <= confidence <= 1:
+            raise ValueError(
+                f"hypotheses[{index}].confidence must be between 0 and 1"
+            )
+
+        for field in ("supporting_findings", "contradicting_findings"):
+            references = hypothesis[field]
+            if not isinstance(references, list):
+                raise ValueError(
+                    f"hypotheses[{index}].{field} must be an array"
+                )
+
+            unknown = [
+                reference
+                for reference in references
+                if reference not in valid_finding_ids
+            ]
+            if unknown:
+                raise ValueError(
+                    f"hypotheses[{index}] references unknown finding IDs: {unknown}"
+                )
+
+    return hypotheses
+
+
+def invoke_bedrock_reasoning(reasoning_input):
+    system_prompt = """
+You are the reasoning layer of an AWS CloudOps multi-agent system.
+
+Your job is to analyze the supplied incident context and specialist evidence and
+produce causal hypotheses.
+
+Strict rules:
+1. Reason ONLY from the supplied input.
+2. Do not invent telemetry, metrics, logs, resources, alarms, or events.
+3. A missing metric datapoint is NOT evidence that the metric value was zero.
+4. A finding marked informational does not by itself prove a root cause.
+5. Distinguish observed facts from causal hypotheses.
+6. When evidence is insufficient, keep hypotheses open and explain the uncertainty.
+7. You may produce multiple plausible hypotheses when the evidence does not
+   distinguish between them.
+8. supporting_findings and contradicting_findings MUST contain only finding_id
+   values present in the supplied agent findings.
+9. Confidence is a reasoning confidence from 0 to 1, not a calibrated probability.
+10. Do not propose destructive remediation actions. This stage is analysis only.
+""".strip()
+
+    user_prompt = (
+        "Analyze this incident using only the supplied evidence. "
+        "Return hypotheses that could explain the reported symptoms.
+
+"
+        + json.dumps(reasoning_input, default=str)
+    )
+
+    response = bedrock_runtime.converse(
+        modelId=BEDROCK_MODEL_ID,
+        system=[{"text": system_prompt}],
+        messages=[
+            {
+                "role": "user",
+                "content": [{"text": user_prompt}],
+            }
+        ],
+        inferenceConfig={
+            "maxTokens": 1800,
+            "temperature": 0.2,
+        },
+        outputConfig={
+            "textFormat": {
+                "type": "json_schema",
+                "structure": {
+                    "jsonSchema": {
+                        "name": "cloudops_hypotheses",
+                        "description": "Causal hypotheses grounded in supplied CloudOps evidence.",
+                        "schema": json.dumps(HYPOTHESIS_SCHEMA),
+                    }
+                },
+            }
+        },
+    )
+
+    content = response.get("output", {}).get("message", {}).get("content", [])
+    text_parts = [block["text"] for block in content if "text" in block]
+    if not text_parts:
+        raise ValueError("Bedrock returned no text content")
+
+    return json.loads("".join(text_parts))
+
+
+def generate_hypotheses(incident_id):
+    response = incidents_table.get_item(Key={"incident_id": incident_id})
+    incident = response.get("Item")
+    if not incident:
+        raise ValueError(f"Incident not found: {incident_id}")
+
+    reasoning_input = build_reasoning_input(incident_id)
+    valid_finding_ids = collect_valid_finding_ids(reasoning_input)
+
+    model_output = invoke_bedrock_reasoning(reasoning_input)
+    hypotheses = validate_hypotheses(model_output, valid_finding_ids)
+
+    persisted_hypotheses = []
+    for hypothesis in hypotheses:
+        stored = dict(hypothesis)
+        stored["confidence"] = Decimal(str(hypothesis["confidence"]))
+        persisted_hypotheses.append(stored)
+
+    incident["hypotheses"] = persisted_hypotheses
+    incident["status"] = "analysis"
+    incident["updated_at"] = now_iso()
+    incident["state_version"] = int(incident.get("state_version", 1)) + 1
+    incident["last_event"] = "hypotheses_generated"
+    incidents_table.put_item(Item=incident)
+
+    return persisted_hypotheses
 
 
 def create_incident(event):
@@ -353,6 +568,7 @@ def lambda_handler(event, context):
         "create_incident",
         "investigate_incident",
         "build_reasoning_input",
+        "generate_hypotheses",
     }:
         return {
             "statusCode": 400,
@@ -362,6 +578,7 @@ def lambda_handler(event, context):
                     "create_incident",
                     "investigate_incident",
                     "build_reasoning_input",
+                    "generate_hypotheses",
                 ],
             }),
         }
@@ -391,12 +608,23 @@ def lambda_handler(event, context):
                 }, default=str),
             }
 
-        reasoning_input = build_reasoning_input(incident_id)
+        if operation == "build_reasoning_input":
+            reasoning_input = build_reasoning_input(incident_id)
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "message": "Reasoning input built",
+                    "reasoning_input": reasoning_input,
+                }, default=str),
+            }
+
+        hypotheses = generate_hypotheses(incident_id)
         return {
             "statusCode": 200,
             "body": json.dumps({
-                "message": "Reasoning input built",
-                "reasoning_input": reasoning_input,
+                "message": "Hypotheses generated",
+                "model_id": BEDROCK_MODEL_ID,
+                "hypotheses": hypotheses,
             }, default=str),
         }
 
@@ -414,6 +642,7 @@ def lambda_handler(event, context):
             "body": json.dumps({
                 "error": "AWS operation failed",
                 "code": exc.response.get("Error", {}).get("Code"),
+                "message": exc.response.get("Error", {}).get("Message"),
             }),
         }
 

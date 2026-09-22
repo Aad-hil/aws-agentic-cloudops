@@ -344,14 +344,12 @@ def _classify_finding_semantics(finding):
     ):
         return "telemetry_gap"
 
-    if (
-        "logs-" in finding_id
-        and (
-            "zero cloudwatch log events" in summary
-            or "no cloudwatch log events" in summary
-            or "returned zero log events" in summary
-        )
-    ):
+    if "logs-" in finding_id and (
+        "zero" in summary
+        or "no " in summary
+        or "none" in summary
+        or "empty" in summary
+    ) and ("log" in summary or "event" in summary):
         return "absence_only"
 
     if category in {"rule_state", "pattern_validation"}:

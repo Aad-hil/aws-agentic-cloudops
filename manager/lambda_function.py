@@ -320,7 +320,32 @@ def collect_valid_finding_ids(reasoning_input):
     return finding_ids
 
 
-def validate_hypotheses(payload, valid_finding_ids):
+def _collect_no_data_finding_ids(reasoning_input):
+    ids = set()
+    for agent_result in reasoning_input.get("agent_findings", []):
+        for finding in agent_result.get("findings", []):
+            finding_id = finding.get("finding_id")
+            summary = str(finding.get("summary", "")).lower()
+            category = str(finding.get("category", "")).lower()
+            if finding_id and (
+                "no_data" in finding_id
+                or "no datapoints" in summary
+                or "cannot be inferred" in summary
+                or "activity cannot be inferred" in summary
+                or ("telemetry" in category and "telemetry" in category)
+            ):
+                ids.add(finding_id)
+    return ids
+
+
+def validate_hypotheses(payload, valid_finding_ids, reasoning_input):
+    """
+    Validate and normalize Bedrock hypothesis output.
+
+    The model may reason about missing telemetry, but missing telemetry is
+    never accepted as causal evidence. The Manager enforces this boundary
+    deterministically so downstream agents cannot mistake no_data for zero.
+    """
     if not isinstance(payload, dict):
         raise ValueError("Bedrock response must be a JSON object")
 
@@ -329,6 +354,13 @@ def validate_hypotheses(payload, valid_finding_ids):
         raise ValueError("Bedrock response must contain a hypotheses array")
 
     allowed_statuses = {"open", "supported", "weak", "rejected", "verified"}
+
+    # Finding IDs whose underlying evidence explicitly represents missing
+    # telemetry. These may be discussed in rationale but cannot support or
+    # contradict a causal hypothesis.
+    no_data_finding_ids = _collect_no_data_finding_ids(reasoning_input)
+
+    normalized = []
 
     for index, hypothesis in enumerate(hypotheses):
         if not isinstance(hypothesis, dict):
@@ -349,16 +381,33 @@ def validate_hypotheses(payload, valid_finding_ids):
                 f"hypotheses[{index}] missing required fields: {sorted(missing)}"
             )
 
-        if hypothesis["status"] not in allowed_statuses:
+        status = hypothesis["status"]
+        if status not in allowed_statuses:
             raise ValueError(
-                f"hypotheses[{index}] has invalid status: {hypothesis['status']}"
+                f"hypotheses[{index}] has invalid status: {status}"
             )
 
         confidence = hypothesis["confidence"]
-        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+        if isinstance(confidence, bool):
             raise ValueError(
                 f"hypotheses[{index}].confidence must be a number"
             )
+
+        # Bedrock sometimes serializes numeric values as strings. Normalize
+        # them only when they are unambiguously numeric.
+        if isinstance(confidence, str):
+            try:
+                confidence = float(confidence.strip())
+            except ValueError as exc:
+                raise ValueError(
+                    f"hypotheses[{index}].confidence must be a number"
+                ) from exc
+
+        if not isinstance(confidence, (int, float)):
+            raise ValueError(
+                f"hypotheses[{index}].confidence must be a number"
+            )
+
         if not 0 <= confidence <= 1:
             raise ValueError(
                 f"hypotheses[{index}].confidence must be between 0 and 1"
@@ -381,8 +430,65 @@ def validate_hypotheses(payload, valid_finding_ids):
                     f"hypotheses[{index}] references unknown finding IDs: {unknown}"
                 )
 
-    return hypotheses
+        supporting = [
+            finding_id
+            for finding_id in hypothesis["supporting_findings"]
+            if finding_id not in no_data_finding_ids
+        ]
+        contradicting = [
+            finding_id
+            for finding_id in hypothesis["contradicting_findings"]
+            if finding_id not in no_data_finding_ids
+        ]
 
+        removed_supporting = [
+            finding_id
+            for finding_id in hypothesis["supporting_findings"]
+            if finding_id in no_data_finding_ids
+        ]
+        removed_contradicting = [
+            finding_id
+            for finding_id in hypothesis["contradicting_findings"]
+            if finding_id in no_data_finding_ids
+        ]
+
+        if removed_supporting or removed_contradicting:
+            logger.warning(
+                json.dumps({
+                    "event": "hypothesis_no_data_references_removed",
+                    "hypothesis_id": hypothesis["hypothesis_id"],
+                    "removed_supporting_findings": removed_supporting,
+                    "removed_contradicting_findings": removed_contradicting,
+                })
+            )
+
+        # If a hypothesis has no factual causal support after removing
+        # no_data references, it cannot be represented as supported/verified.
+        if not supporting and status in {"supported", "verified"}:
+            status = "weak" if hypothesis["contradicting_findings"] else "open"
+
+        # Missing telemetry alone must never produce high confidence.
+        if not supporting and confidence > 0.4:
+            confidence = 0.4
+
+        stored = dict(hypothesis)
+        stored["status"] = status
+        stored["supporting_findings"] = supporting
+        stored["contradicting_findings"] = contradicting
+        stored["confidence"] = float(confidence)
+
+        if removed_supporting or removed_contradicting:
+            suffix = (
+                " Manager validation removed missing-telemetry findings from "
+                "causal evidence; the missing telemetry remains an evidence gap."
+            )
+            rationale = str(stored.get("rationale", "")).strip()
+            if suffix.strip() not in rationale:
+                stored["rationale"] = (rationale + suffix).strip()
+
+        normalized.append(stored)
+
+    return normalized
 
 def invoke_bedrock_reasoning(reasoning_input):
     system_prompt = """
@@ -522,7 +628,7 @@ def generate_hypotheses(incident_id):
     valid_finding_ids = collect_valid_finding_ids(reasoning_input)
 
     model_output = invoke_bedrock_reasoning(reasoning_input)
-    hypotheses = validate_hypotheses(model_output, valid_finding_ids)
+    hypotheses = validate_hypotheses(model_output, valid_finding_ids, reasoning_input)
 
     persisted_hypotheses = []
     for hypothesis in hypotheses:

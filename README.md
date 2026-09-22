@@ -86,7 +86,7 @@ Application telemetry
 - [x] Common Evidence Contract
 - [x] Tested against the Customer Analytics application resources
 
-### Phase 4 — Incident Orchestration — IN PROGRESS
+### Phase 4 — Incident Orchestration — COMPLETE
 
 - [x] Shared incident state DynamoDB table
 - [x] Incident schema
@@ -103,20 +103,25 @@ Application telemetry
 - [x] Four agent evidence records persisted
 - [x] Storage Agent S3 + DynamoDB + EventBridge evidence aggregated
 
-Current validation checkpoint:
-- Incident `INC-F70EC79C` is persisted in DynamoDB.
+Validation checkpoint:
+- Clean incident `INC-AF76D3C6` completed the full four-task investigation.
 - Observability `TASK-001`, `TASK-002`, and `TASK-003` completed successfully.
-- Three Observability findings and three compact evidence records were persisted.
-- Storage `TASK-004` failed because the Manager requested `investigate_storage`, while the deployed Storage Agent accepts `investigate_s3`, `investigate_dynamodb`, `investigate_eventbridge`, and `investigate_all`.
-- The Manager has been corrected to use `investigate_all`; the next AWS test must be run after deploying that change.
+- Storage `TASK-004` completed successfully with S3, DynamoDB, and EventBridge evidence.
+- Four specialist evidence records were persisted in shared incident state.
+- Phase 4 investigation and evidence aggregation are complete.
 
 ### Phase 5 — Multi-Agent Reasoning — IN PROGRESS
 
-- [ ] Agent-to-agent communication
-- [ ] Evidence synthesis
-- [ ] Competing hypotheses
-- [ ] Hypothesis validation
-- [ ] Critic / challenge agent
+- [x] Reasoning contract
+- [x] Deterministic reasoning-input builder
+- [x] Bedrock Nova 2 Lite hypothesis generation
+- [x] JSON parsing and hypothesis validation
+- [x] Finding-reference validation
+- [x] Competing hypotheses
+- [x] Hypothesis persistence
+- [ ] Agent-to-agent critique handoff
+- [x] Critic Agent contract and initial implementation
+- [ ] Critic Agent AWS deployment and validation
 - [ ] Root-cause assessment
 - [ ] Confidence and uncertainty representation
 
@@ -189,11 +194,15 @@ Use environment variables, IAM roles, AWS Secrets Manager, or other appropriate 
 
 The target application, Application Registry, Observability Agent, Storage Agent, Common Evidence Contract, Incident State table, and CloudOps Manager v1 are implemented.
 
-The Manager has been validated in AWS through a clean end-to-end incident investigation. All four specialist tasks completed, findings were persisted from both Observability and Storage Agents, and four compact evidence records were aggregated into shared incident state. Phase 4 is complete. The next phase is the reasoning layer: Bedrock-assisted hypothesis generation, evidence analysis, and hypothesis validation.
+The Manager has been validated in AWS through a clean end-to-end incident investigation. All four specialist tasks completed, findings were persisted from both Observability and Storage Agents, and four compact evidence records were aggregated into shared incident state. Phase 4 is complete.
+
+Phase 5A is also validated: Nova 2 Lite generates competing hypotheses through an inference profile, the Manager parses and validates the JSON, checks finding references, and persists the hypotheses. The validated incident is `INC-AF76D3C3`/the current test incident `INC-AF76D3C6` as applicable; use the AWS incident ID shown by the test environment as the source of truth.
+
+Phase 5B has started with the independent Critic Agent. The next step is deploying and validating it against `INC-AF76D3C6`, especially the incorrect inference that zero returned metric datapoints means zero Lambda invocations.
 
 ## Status
 
 POC in active development.
 
 
-Phase 5 has started with `docs/reasoning-contract.md`. Next: deterministic reasoning-input builder, then Bedrock structured hypothesis generation.
+Phase 5A hypothesis generation is implemented and validated. Phase 5B starts with `docs/critic-contract.md` and `agents/critic/lambda_function.py`. Next: deploy the Critic Agent, run it against the generated hypotheses, and inspect whether it correctly challenges unsupported evidence interpretations.

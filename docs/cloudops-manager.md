@@ -103,9 +103,45 @@ Later phases will add:
 - specialist Lambda invocation permissions
 - Bedrock permissions
 
+## Specialist delegation v1
+
+The Manager now supports `investigate_incident`.
+
+It reads the incident from DynamoDB and delegates pending plan tasks to the existing specialist Lambdas:
+
+- Observability: `investigate_logs`, `get_metrics`, `get_alarms`
+- Storage: `investigate_storage`
+
+Each specialist receives the incident context and returns its evidence contract. The Manager records delegation status, agent findings, compact evidence, and task status back into the shared incident item.
+
+The Manager does not perform specialist AWS investigations itself.
+
+### Investigation test event
+
+```json
+{
+  "operation": "investigate_incident",
+  "incident_id": "INC-XXXXXXXX"
+}
+```
+
+Expected lifecycle:
+
+```text
+planning
+   ↓
+investigating
+   ↓
+specialist delegation
+   ↓
+agent findings + evidence
+   ↓
+analysis
+```
+
 ## Next phase
 
-After v1 creation works, the Manager will be extended to:
+After specialist delegation works, the Manager will be extended to:
 
 ```text
 Manager

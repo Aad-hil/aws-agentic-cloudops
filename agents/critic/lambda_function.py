@@ -46,7 +46,7 @@ def build_critic_input(incident):
         "open_questions": incident.get("open_questions", []),
     }
 
-def invoke_bedrock(critic_input):
+def invoke_bedrock(critic_input, valid_finding_ids):
     system_prompt = """
 You are the Critic Agent in an AWS CloudOps multi-agent system.
 Challenge each supplied hypothesis against the supplied evidence.
@@ -60,11 +60,30 @@ Each critique must contain: hypothesis_id, verdict, issues, valid_supporting_fin
 valid_contradicting_findings, missing_evidence, confidence, rationale.
 verdict must be supported, unsupported, or needs_more_evidence.
 confidence must be between 0 and 1.
+IMPORTANT: valid_supporting_findings and valid_contradicting_findings are strict references to finding IDs only.
+Use ONLY values from the explicit FINDING ID ALLOWLIST below.
+Never use evidence IDs, evidence summaries, task IDs, delegation IDs, operation names,
+or phrases such as "get_alarms completed" as finding references.
+If no finding ID directly supports or contradicts the hypothesis, return an empty array.
+Missing telemetry is not contradictory evidence and is not proof of zero.
+A configured/enabled resource does not prove runtime delivery or success.
+An accessible resource does not prove the application operation succeeds.
+
 """.strip()
+    user_prompt = (
+        "Critique the supplied hypotheses using ONLY the incident context and specialist evidence. "
+        "Do not create new hypotheses. Do not rank hypotheses. "
+        "Use only the exact finding IDs in this allowlist for finding references.\n\n"
+        "FINDING ID ALLOWLIST:\n"
+        + json.dumps(sorted(valid_finding_ids))
+        + "\n\nINCIDENT CONTEXT:\n"
+        + json.dumps(critic_input, default=str)
+    )
+
     response = bedrock_runtime.converse(
         modelId=BEDROCK_MODEL_ID,
         system=[{"text": system_prompt}],
-        messages=[{"role": "user", "content": [{"text": json.dumps(critic_input, default=str)}]}],
+        messages=[{"role": "user", "content": [{"text": user_prompt}]}],
         inferenceConfig={"maxTokens": 1800, "temperature": 0.0},
     )
     content = response.get("output", {}).get("message", {}).get("content", [])
@@ -110,7 +129,8 @@ def critique_hypotheses(incident_id):
     incident = get_incident(incident_id)
     if not incident.get("hypotheses"):
         raise ValueError("No hypotheses exist. Generate hypotheses first.")
-    output = invoke_bedrock(build_critic_input(incident))
+    valid_finding_ids = collect_finding_ids(incident)
+    output = invoke_bedrock(build_critic_input(incident), valid_finding_ids)
     critiques = validate_critiques(output, incident)
     stored = []
     for critique in critiques:

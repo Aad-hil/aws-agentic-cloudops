@@ -179,7 +179,19 @@ def invoke_specialist(function_name, operation, incident):
     payload_bytes = response["Payload"].read()
     specialist_response = json.loads(payload_bytes)
     if response.get("FunctionError"):
-        raise RuntimeError(f"Specialist Lambda failed: {function_name}")
+        logger.error(
+            "Specialist Lambda returned FunctionError",
+            extra={
+                "function_name": function_name,
+                "function_error": response.get("FunctionError"),
+                "invocation_payload": specialist_response,
+            },
+        )
+        raise RuntimeError(
+            f"Specialist Lambda failed: {function_name}; "
+            f"FunctionError={response.get('FunctionError')}; "
+            f"payload={json.dumps(specialist_response, default=str)}"
+        )
     if specialist_response.get("statusCode") not in (None, 200):
         raise RuntimeError(
             f"Specialist returned status {specialist_response.get('statusCode')}: "

@@ -56,11 +56,18 @@ Reason only from supplied incident state. Critic feedback is a challenge, not gr
 Never invent telemetry, resources, metrics, logs, alarms, events, or finding IDs.
 Missing telemetry is not zero activity. Informational findings do not prove causality.
 Remove unsupported evidence references. Preserve hypothesis_id values.
-Return exactly one hypothesis for every current hypothesis.
+Return exactly one result for every current hypothesis.
+You are NOT a hypothesis-generation agent. Do not create new hypotheses, new causal explanations, or replacement hypotheses.
+For each existing hypothesis, choose exactly one revision_action: keep, revise, or reject.
+Use keep when the Critic found no substantive problem; do not change the hypothesis statement merely to make a change.
+Use revise only to correct the existing hypothesis using supplied evidence and critic feedback while preserving its original causal scope.
+Use reject when the existing hypothesis is unsupported or contradicted; do not replace it with a different cause.
+If more evidence is needed, keep the existing hypothesis but lower confidence or mark it weak/open and explain the evidence gap.
 Do not perform AWS actions or propose remediation.
 Return only JSON with a top-level hypotheses array.
-Each hypothesis requires hypothesis_id, statement, status, supporting_findings,
+Each hypothesis requires hypothesis_id, revision_action, statement, status, supporting_findings,
 contradicting_findings, confidence, and rationale.
+revision_action must be exactly keep, revise, or reject.
 Confidence must be a number from 0 to 1.
 """.strip()
     response = bedrock.converse(
@@ -89,11 +96,17 @@ def validate(payload, incident):
     if [x.get("hypothesis_id") for x in hypotheses] != [x.get("hypothesis_id") for x in current]:
         raise ValueError("Revision must preserve hypothesis IDs exactly")
     valid = finding_ids(incident)
-    required = {"hypothesis_id","statement","status","supporting_findings","contradicting_findings","confidence","rationale"}
+    required = {"hypothesis_id","revision_action","statement","status","supporting_findings","contradicting_findings","confidence","rationale"}
     for i, h in enumerate(hypotheses):
         missing = required - set(h)
         if missing:
             raise ValueError("hypotheses[%d] missing fields: %s" % (i, sorted(missing)))
+        if h["revision_action"] not in {"keep", "revise", "reject"}:
+            raise ValueError("Invalid revision_action")
+        if h["revision_action"] == "reject" and h["status"] != "rejected":
+            raise ValueError("Rejected revision_action must use rejected status")
+        if h["revision_action"] == "keep" and h["status"] == "rejected":
+            raise ValueError("Keep revision_action cannot use rejected status")
         if h["status"] not in STATUSES:
             raise ValueError("Invalid hypothesis status")
         if isinstance(h["confidence"], bool) or not isinstance(h["confidence"], (int,float)) or not 0 <= h["confidence"] <= 1:

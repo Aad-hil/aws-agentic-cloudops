@@ -24,6 +24,9 @@ DEFAULT_REGION = os.getenv("DEFAULT_REGION", "us-east-1")
 
 OBSERVABILITY_FUNCTION_NAME = os.getenv("OBSERVABILITY_FUNCTION_NAME", "customer-analytics-observability-agent")
 STORAGE_FUNCTION_NAME = os.getenv("STORAGE_FUNCTION_NAME", "customer-analytics-storage-agent")
+CRITIC_FUNCTION_NAME = os.getenv("CRITIC_FUNCTION_NAME", "customer-analytics-critic-agent")
+REVISION_FUNCTION_NAME = os.getenv("REVISION_FUNCTION_NAME", "customer-analytics-hypothesis-revision-agent")
+ROOT_CAUSE_FUNCTION_NAME = os.getenv("ROOT_CAUSE_FUNCTION_NAME", "customer-analytics-root-cause-assessment-agent")
 
 BEDROCK_MODEL_ID = os.getenv(
     "BEDROCK_MODEL_ID",
@@ -575,6 +578,7 @@ def lambda_handler(event, context):
         "investigate_incident",
         "build_reasoning_input",
         "generate_hypotheses",
+        "assess_root_cause",
     }:
         return {
             "statusCode": 400,
@@ -585,6 +589,7 @@ def lambda_handler(event, context):
                     "investigate_incident",
                     "build_reasoning_input",
                     "generate_hypotheses",
+                    "assess_root_cause",
                 ],
             }),
         }
@@ -610,6 +615,16 @@ def lambda_handler(event, context):
                 "statusCode": 200,
                 "body": json.dumps({
                     "message": "Incident investigation completed",
+                    "incident": incident,
+                }, default=str),
+            }
+
+        if operation == "assess_root_cause":
+            incident = assess_root_cause(incident_id)
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "message": "Root cause assessment completed",
                     "incident": incident,
                 }, default=str),
             }

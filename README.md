@@ -165,10 +165,31 @@ EC2/VPC infrastructure will be introduced when the Infrastructure Agent needs re
 
 ## Repository structure
 
+All AWS Lambda source code is maintained in the canonical `lambdas/` directory.
+The folder name matches the deployed Lambda function name, and each Lambda uses
+`lambda_function.py` with the existing AWS handler `lambda_function.lambda_handler`.
+
 ```text
 aws-agentic-cloudops/
-├── application/
-├── agents/
+├── lambdas/
+│   ├── customer-analytics-api/
+│   │   └── lambda_function.py
+│   ├── customer-analytics-worker/
+│   │   └── lambda_function.py
+│   ├── customer-analytics-registry-api/
+│   │   └── lambda_function.py
+│   ├── customer-analytics-observability-agent/
+│   │   └── lambda_function.py
+│   ├── customer-analytics-storage-agent/
+│   │   └── lambda_function.py
+│   ├── customer-analytics-cloudops-manager/
+│   │   └── lambda_function.py
+│   ├── customer-analytics-critic-agent/
+│   │   └── lambda_function.py
+│   ├── customer-analytics-hypothesis-revision-agent/
+│   │   └── lambda_function.py
+│   └── customer-analytics-root-cause-assessment-agent/
+│       └── lambda_function.py
 ├── docs/
 ├── infrastructure/
 ├── knowledge/
@@ -176,6 +197,22 @@ aws-agentic-cloudops/
 ├── tests/
 └── tools/
 ```
+
+### Lambda source-of-truth rule
+
+`lambdas/` is the canonical source directory for deployed Lambda code.
+Do not maintain duplicate Lambda source files under `application/`,
+`agents/`, `manager/`, or `registry/`.
+
+The repository path is independent of the AWS Lambda handler configuration.
+The deployed handler remains:
+
+```text
+lambda_function.lambda_handler
+```
+
+Deployment scripts or IaC should package the corresponding
+`lambdas/<lambda-name>/` directory.
 
 ## Security
 
@@ -192,7 +229,7 @@ Use environment variables, IAM roles, AWS Secrets Manager, or other appropriate 
 
 ## Current checkpoint
 
-The target application, Application Registry, Observability Agent, Storage Agent, Common Evidence Contract, Incident State table, and CloudOps Manager v1 are implemented.
+The target application, Application Registry, Observability Agent, Storage Agent, Common Evidence Contract, Incident State table, and CloudOps Manager v1 are implemented. Lambda source is consolidated under the canonical `lambdas/` directory.
 
 The Manager has been validated in AWS through a clean end-to-end incident investigation. All four specialist tasks completed, findings were persisted from both Observability and Storage Agents, and four compact evidence records were aggregated into shared incident state. Phase 4 is complete.
 

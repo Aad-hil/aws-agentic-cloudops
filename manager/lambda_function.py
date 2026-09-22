@@ -483,6 +483,446 @@ def generate_hypotheses(incident_id):
     return persisted_hypotheses
 
 
+
+def map_required_investigation(description):
+    """
+    Deterministically map a Root Cause Agent evidence request to an
+    existing specialist operation.
+
+    The Root Cause Agent describes the evidence gap.
+    The Manager decides which specialist operation can collect it.
+    """
+    text = description.lower()
+    operations = []
+
+    if any(term in text for term in [
+        "s3",
+        "upload",
+        "server access logs",
+        "error responses",
+    ]):
+        operations.append({
+            "agent": "storage-agent",
+            "operation": "investigate_s3",
+        })
+
+    if any(term in text for term in [
+        "cloudwatch logs",
+        "lambda invocation logs",
+        "lambda logs",
+    ]):
+        operations.append({
+            "agent": "observability-agent",
+            "operation": "investigate_logs",
+        })
+
+    if any(term in text for term in [
+        "eventbridge",
+        "event delivery",
+        "event pattern",
+        "rule invocation",
+        "delivery attempts",
+        "events history",
+    ]):
+        operations.append({
+            "agent": "storage-agent",
+            "operation": "investigate_eventbridge",
+        })
+
+    if any(term in text for term in [
+        "invocation pattern",
+        "lambda function configuration",
+        "expected invocation",
+    ]):
+        operations.append({
+            "agent": "observability-agent",
+            "operation": "get_metrics",
+        })
+
+    return operations
+
+
+def create_targeted_investigation_tasks(
+    incident,
+    required_investigations,
+):
+    """
+    Convert Root Cause Agent evidence gaps into concrete specialist
+    tasks.
+
+    A targeted investigation is allowed to repeat an operation that
+    was already executed during an earlier investigation round.
+
+    Deduplication happens only within the current round, so a second
+    Root Cause Assessment can legitimately request fresh evidence.
+    """
+    current_round = int(
+        incident.get(
+            "targeted_investigation_round",
+            0,
+        )
+    ) + 1
+
+    # Safety guard against an endless investigation loop.
+    if current_round > 2:
+        raise ValueError(
+            "Maximum targeted investigation rounds reached"
+        )
+
+    incident["targeted_investigation_round"] = current_round
+
+    existing_this_round = {
+        (
+            task.get("agent"),
+            task.get("operation"),
+            task.get("reason"),
+        )
+        for task in incident.get(
+            "investigation_plan",
+            [],
+        )
+        if task.get("source") == "root_cause_assessment"
+        and int(task.get("investigation_round", 0)) == current_round
+    }
+
+    created_tasks = []
+
+    for description in required_investigations:
+        if not isinstance(description, str) or not description.strip():
+            continue
+
+        mappings = map_required_investigation(description)
+
+        for mapping in mappings:
+            agent = mapping["agent"]
+            operation = mapping["operation"]
+
+            key = (
+                agent,
+                operation,
+                description,
+            )
+
+            if key in existing_this_round:
+                continue
+
+            task = {
+                "task_id": f"TASK-{uuid4().hex[:8].upper()}",
+                "agent": agent,
+                "operation": operation,
+                "status": "pending",
+                "created_at": now_iso(),
+                "source": "root_cause_assessment",
+                "investigation_round": current_round,
+                "reason": description,
+            }
+
+            incident.setdefault(
+                "investigation_plan",
+                [],
+            ).append(task)
+
+            existing_this_round.add(key)
+            created_tasks.append(task)
+
+    return created_tasks
+
+
+def delegate_targeted_task(
+    incident,
+    task,
+):
+    """
+    Invoke a specialist for one targeted investigation.
+    """
+    specialist_functions = {
+        "observability-agent": OBSERVABILITY_FUNCTION_NAME,
+        "storage-agent": STORAGE_FUNCTION_NAME,
+    }
+
+    allowed_operations = {
+        "observability-agent": {
+            "investigate_logs",
+            "get_metrics",
+            "get_alarms",
+        },
+        "storage-agent": {
+            "investigate_all",
+            "investigate_s3",
+            "investigate_dynamodb",
+            "investigate_eventbridge",
+        },
+    }
+
+    agent = task["agent"]
+    operation = task["operation"]
+
+    if agent not in specialist_functions:
+        raise ValueError(
+            f"Unsupported specialist agent: {agent}"
+        )
+
+    if operation not in allowed_operations[agent]:
+        raise ValueError(
+            f"Unsupported operation '{operation}' for agent '{agent}'"
+        )
+
+    delegation = {
+        "delegation_id": f"DEL-{uuid4().hex[:8].upper()}",
+        "task_id": task["task_id"],
+        "agent": agent,
+        "operation": operation,
+        "requested_at": now_iso(),
+        "completed_at": None,
+        "status": "running",
+        "source": "root_cause_assessment",
+        "reason": task.get("reason"),
+        "investigation_round": task.get("investigation_round"),
+    }
+
+    task["status"] = "running"
+
+    try:
+        result = invoke_specialist(
+            specialist_functions[agent],
+            operation,
+            incident,
+        )
+
+        completed_at = now_iso()
+
+        task["status"] = "completed"
+        delegation["status"] = "completed"
+        delegation["completed_at"] = completed_at
+
+        incident.setdefault(
+            "agent_findings",
+            [],
+        ).append({
+            "application_id": incident["application_id"],
+            "agent": agent,
+            "operation": operation,
+            "investigation_type": result.get(
+                "investigation_type",
+                operation,
+            ),
+            "collected_at": result.get(
+                "collected_at",
+                completed_at,
+            ),
+            "source": "targeted_investigation",
+            "reason": task.get("reason"),
+            "investigation_round": task.get(
+                "investigation_round"
+            ),
+            "resources_discovered": result.get(
+                "resources_discovered",
+                [],
+            ),
+            "findings": result.get(
+                "findings",
+                [],
+            ),
+            "evidence": result.get(
+                "evidence",
+                {},
+            ),
+        })
+
+        incident.setdefault(
+            "evidence",
+            [],
+        ).append({
+            "evidence_id": f"EVD-{uuid4().hex[:8].upper()}",
+            "agent": agent,
+            "operation": operation,
+            "investigation_type": result.get(
+                "investigation_type",
+                operation,
+            ),
+            "collected_at": result.get(
+                "collected_at",
+                completed_at,
+            ),
+            "source": "targeted_investigation",
+            "summary": f"{operation} completed",
+            "artifact_uri": None,
+            "investigation_round": task.get(
+                "investigation_round"
+            ),
+        })
+
+        return {
+            "task": task,
+            "delegation": delegation,
+            "result": result,
+        }
+
+    except Exception as exc:
+        logger.exception(
+            "Targeted specialist delegation failed"
+        )
+
+        task["status"] = "failed"
+        delegation["status"] = "failed"
+        delegation["completed_at"] = now_iso()
+        delegation["error"] = str(exc)
+
+        return {
+            "task": task,
+            "delegation": delegation,
+            "error": str(exc),
+        }
+
+
+def assess_root_cause(incident_id):
+    """
+    Invoke the Root Cause Assessment Agent.
+
+    If it reports insufficient evidence, the Manager converts its
+    required investigations into concrete specialist tasks and
+    executes them.
+
+    The Manager does not invent investigation results.
+    """
+    response = incidents_table.get_item(
+        Key={"incident_id": incident_id}
+    )
+    incident = response.get("Item")
+
+    if not incident:
+        raise ValueError(
+            f"Incident not found: {incident_id}"
+        )
+
+    root_cause_response = invoke_specialist(
+        ROOT_CAUSE_FUNCTION_NAME,
+        "assess_root_cause",
+        incident,
+    )
+
+    assessment = root_cause_response.get(
+        "root_cause_assessment"
+    )
+
+    if not isinstance(assessment, dict):
+        raise ValueError(
+            "Root Cause Assessment Agent did not return "
+            "root_cause_assessment"
+        )
+
+    incident["root_cause_assessment"] = assessment
+    incident["updated_at"] = now_iso()
+    incident["state_version"] = (
+        int(incident.get("state_version", 1)) + 1
+    )
+
+    assessment_status = assessment.get("status")
+
+    if assessment_status in {
+        "root_cause_supported",
+        "multiple_plausible_causes",
+    }:
+        incident["status"] = "analysis"
+        incident["last_event"] = (
+            "root_cause_assessment_completed"
+        )
+
+        incidents_table.put_item(Item=incident)
+
+        return incident
+
+    if assessment_status != "insufficient_evidence":
+        raise ValueError(
+            "Unsupported Root Cause Assessment status: "
+            f"{assessment_status}"
+        )
+
+    required_investigations = assessment.get(
+        "required_investigations",
+        [],
+    )
+
+    if not isinstance(required_investigations, list):
+        raise ValueError(
+            "required_investigations must be a list"
+        )
+
+    targeted_tasks = create_targeted_investigation_tasks(
+        incident,
+        required_investigations,
+    )
+
+    incident.setdefault(
+        "delegations",
+        [],
+    )
+
+    incident["status"] = "investigating"
+    incident["updated_at"] = now_iso()
+    incident["state_version"] = (
+        int(incident.get("state_version", 1)) + 1
+    )
+    incident["last_event"] = (
+        "targeted_investigations_planned"
+    )
+
+    incidents_table.put_item(Item=incident)
+
+    targeted_results = []
+
+    for task in targeted_tasks:
+        result = delegate_targeted_task(
+            incident,
+            task,
+        )
+
+        incident["delegations"].append(
+            result["delegation"]
+        )
+
+        targeted_results.append({
+            "task_id": task["task_id"],
+            "agent": task["agent"],
+            "operation": task["operation"],
+            "status": task["status"],
+            "reason": task.get("reason"),
+            "investigation_round": task.get(
+                "investigation_round"
+            ),
+            "success": result.get("result") is not None,
+        })
+
+    incident["status"] = "analysis"
+    incident["updated_at"] = now_iso()
+    incident["state_version"] = (
+        int(incident.get("state_version", 1)) + 1
+    )
+    incident["last_event"] = (
+        "targeted_investigation_completed"
+    )
+
+    incidents_table.put_item(Item=incident)
+
+    return {
+        "incident_id": incident_id,
+        "status": incident["status"],
+        "root_cause_assessment": assessment,
+        "targeted_investigations": targeted_results,
+        "targeted_investigation_round": incident.get(
+            "targeted_investigation_round",
+            0,
+        ),
+        "agent_findings": incident.get(
+            "agent_findings",
+            [],
+        ),
+        "evidence": incident.get(
+            "evidence",
+            [],
+        ),
+    }
+
 def create_incident(event):
     application_id = event.get("application_id")
     if not application_id:

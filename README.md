@@ -86,16 +86,24 @@ Application telemetry
 - [x] Common Evidence Contract
 - [x] Tested against the Customer Analytics application resources
 
-### Phase 4 — Incident Orchestration — NEXT
+### Phase 4 — Incident Orchestration — IN PROGRESS
 
-- [ ] Shared incident state DynamoDB table
-- [ ] Incident schema
-- [ ] CloudOps Manager
-- [ ] Incident creation
-- [ ] Investigation planning
-- [ ] Specialist delegation
-- [ ] Evidence aggregation
-- [ ] Incident lifecycle/state transitions
+- [x] Shared incident state DynamoDB table
+- [x] Incident schema
+- [x] CloudOps Manager v1
+- [x] Incident creation
+- [x] Investigation planning
+- [x] Specialist delegation
+- [x] Evidence aggregation
+- [x] Incident lifecycle/state transitions
+- [x] Manager → Observability Agent delegation
+- [x] Manager → Storage Agent delegation
+- [x] Investigation plan tasks verified as completed in DynamoDB
+
+Current validation checkpoint:
+- DynamoDB incident state contains completed investigation-plan tasks for the Manager-triggered investigation.
+- The uploaded DynamoDB result visibly confirms TASK-001 (investigate_logs) and TASK-002 (get_metrics) are completed.
+- Full agent_findings and evidence validation requires the corresponding DynamoDB sections to be visible/exported; task completion alone is not sufficient evidence for those fields.
 
 ### Phase 5 — Multi-Agent Reasoning
 
@@ -174,9 +182,9 @@ Use environment variables, IAM roles, AWS Secrets Manager, or other appropriate 
 
 ## Current checkpoint
 
-The target application, Application Registry, Observability Agent, Storage Agent, and Common Evidence Contract are implemented.
+The target application, Application Registry, Observability Agent, Storage Agent, Common Evidence Contract, Incident State table, and CloudOps Manager v1 are implemented.
 
-**The next implementation step is the shared Incident State DynamoDB table, followed by the CloudOps Manager.**
+The Manager has been validated in AWS through incident creation, investigation planning, and specialist delegation. The latest uploaded DynamoDB result confirms completed investigation-plan tasks. The next checkpoint is to validate the persisted agent_findings and evidence sections, then build the reasoning layer.
 
 ## Status
 

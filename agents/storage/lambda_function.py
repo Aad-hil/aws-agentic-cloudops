@@ -789,6 +789,8 @@ def build_findings(
                     f"s3-{resource_id}-accessible"
                 ),
                 "severity": "info",
+                "finding_type": "access_check",
+                "evidence_semantics": "access_observation",
                 "resource_id": resource_id,
                 "service": "s3",
                 "category": (
@@ -809,6 +811,8 @@ def build_findings(
                     f"s3-{resource_id}-error"
                 ),
                 "severity": "error",
+                "finding_type": "service_error",
+                "evidence_semantics": "causal_candidate",
                 "resource_id": resource_id,
                 "service": "s3",
                 "category": (
@@ -840,6 +844,8 @@ def build_findings(
                     f"dynamodb-{resource_id}-active"
                 ),
                 "severity": "info",
+                "finding_type": "service_observation",
+                "evidence_semantics": "observed_fact",
                 "resource_id": resource_id,
                 "service": "dynamodb",
                 "category": "table_status",
@@ -859,6 +865,8 @@ def build_findings(
                     f"dynamodb-{resource_id}-status"
                 ),
                 "severity": "warning",
+                "finding_type": "service_observation",
+                "evidence_semantics": "observed_fact",
                 "resource_id": resource_id,
                 "service": "dynamodb",
                 "category": "table_status",
@@ -888,6 +896,8 @@ def build_findings(
                     f"eventbridge-{resource_id}-enabled"
                 ),
                 "severity": "info",
+                "finding_type": "configuration",
+                "evidence_semantics": "configuration_state",
                 "resource_id": resource_id,
                 "service": "eventbridge",
                 "category": "rule_state",
@@ -906,6 +916,8 @@ def build_findings(
                     f"eventbridge-{resource_id}-state"
                 ),
                 "severity": "warning",
+                "finding_type": "configuration",
+                "evidence_semantics": "configuration_state",
                 "resource_id": resource_id,
                 "service": "eventbridge",
                 "category": "rule_state",
@@ -989,6 +1001,8 @@ def build_findings(
                         f"{metric_name.lower()}"
                     ),
                     "severity": severity,
+                    "finding_type": "service_error" if metric_name == "FailedInvocations" and value and value > 0 else "telemetry_observation",
+                    "evidence_semantics": "causal_candidate" if metric_name == "FailedInvocations" and value and value > 0 else "observed_fact",
                     "resource_id": resource_id,
                     "service": "eventbridge",
                     "category": category,
@@ -1009,6 +1023,8 @@ def build_findings(
                         f"{metric_name.lower()}-no-data"
                     ),
                     "severity": "info",
+                    "finding_type": "telemetry_observation",
+                    "evidence_semantics": "telemetry_gap",
                     "resource_id": resource_id,
                     "service": "eventbridge",
                     "category": (
@@ -1032,6 +1048,8 @@ def build_findings(
                         f"{metric_name.lower()}-error"
                     ),
                     "severity": "warning",
+                    "finding_type": "telemetry_observation",
+                    "evidence_semantics": "telemetry_gap",
                     "resource_id": resource_id,
                     "service": "eventbridge",
                     "category": (
@@ -1064,6 +1082,8 @@ def build_findings(
                     "pattern-validation"
                 ),
                 severity="info",
+                finding_type="configuration_validation",
+                evidence_semantics="configuration_state",
                 resource_id=resource_id,
                 service="eventbridge",
                 category="pattern_validation",
@@ -1088,6 +1108,8 @@ def build_findings(
                     "pattern-validation-error"
                 ),
                 "severity": "warning",
+                "finding_type": "configuration_validation",
+                "evidence_semantics": "observed_fact",
                 "resource_id": resource_id,
                 "service": "eventbridge",
                 "category": "pattern_validation",

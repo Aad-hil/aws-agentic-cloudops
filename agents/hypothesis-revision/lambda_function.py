@@ -238,7 +238,13 @@ def revise(incident_id):
     incident["state_version"] = int(incident.get("state_version", 1)) + 1
     incident["last_event"] = "hypotheses_revised"
     table.put_item(Item=incident)
-    return {"revision_number": number, "hypotheses": stored}
+    response_hypotheses = []
+    for h in stored:
+        response_item = dict(h)
+        response_item["confidence"] = float(h["confidence"])
+        response_hypotheses.append(response_item)
+
+    return {"revision_number": number, "hypotheses": response_hypotheses}
 
 def lambda_handler(event, context):
     if event.get("operation", "revise_hypotheses") != "revise_hypotheses":

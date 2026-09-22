@@ -93,17 +93,19 @@ Application telemetry
 - [x] CloudOps Manager v1
 - [x] Incident creation
 - [x] Investigation planning
-- [x] Specialist delegation
-- [x] Evidence aggregation
+- [x] Specialist delegation framework
+- [ ] Complete evidence aggregation across all specialists
 - [x] Incident lifecycle/state transitions
 - [x] Manager → Observability Agent delegation
-- [x] Manager → Storage Agent delegation
-- [x] Investigation plan tasks verified as completed in DynamoDB
+- [x] Manager → Storage Agent delegation attempted
+- [x] Investigation plan task status persisted in DynamoDB
 
 Current validation checkpoint:
-- DynamoDB incident state contains completed investigation-plan tasks for the Manager-triggered investigation.
-- The uploaded DynamoDB result visibly confirms TASK-001 (investigate_logs) and TASK-002 (get_metrics) are completed.
-- Full agent_findings and evidence validation requires the corresponding DynamoDB sections to be visible/exported; task completion alone is not sufficient evidence for those fields.
+- Incident `INC-F70EC79C` is persisted in DynamoDB.
+- Observability `TASK-001`, `TASK-002`, and `TASK-003` completed successfully.
+- Three Observability findings and three compact evidence records were persisted.
+- Storage `TASK-004` failed because the Manager requested `investigate_storage`, while the deployed Storage Agent accepts `investigate_s3`, `investigate_dynamodb`, `investigate_eventbridge`, and `investigate_all`.
+- The Manager has been corrected to use `investigate_all`; the next AWS test must be run after deploying that change.
 
 ### Phase 5 — Multi-Agent Reasoning
 
@@ -184,7 +186,7 @@ Use environment variables, IAM roles, AWS Secrets Manager, or other appropriate 
 
 The target application, Application Registry, Observability Agent, Storage Agent, Common Evidence Contract, Incident State table, and CloudOps Manager v1 are implemented.
 
-The Manager has been validated in AWS through incident creation, investigation planning, and specialist delegation. The latest uploaded DynamoDB result confirms completed investigation-plan tasks. The next checkpoint is to validate the persisted agent_findings and evidence sections, then build the reasoning layer.
+The Manager has been validated in AWS through incident creation, investigation planning, specialist delegation, and persisted Observability findings/evidence. One Storage integration mismatch was found and corrected in GitHub. The next checkpoint is to deploy the corrected Manager and confirm Storage findings/evidence are persisted before building the reasoning layer.
 
 ## Status
 

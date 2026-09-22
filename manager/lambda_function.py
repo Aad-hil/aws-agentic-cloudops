@@ -230,6 +230,35 @@ def investigate_incident(incident_id):
     incidents_table.put_item(Item=incident)
     return incident
 
+
+def build_reasoning_input(incident_id):
+    """
+    Build the controlled, read-only payload that will later be supplied to Bedrock.
+
+    This function deliberately does not call Bedrock or perform any AWS action
+    beyond loading the persisted incident state. The reasoning layer must reason
+    only over this explicit evidence boundary.
+    """
+    response = incidents_table.get_item(Key={"incident_id": incident_id})
+    incident = response.get("Item")
+    if not incident:
+        raise ValueError(f"Incident not found: {incident_id}")
+
+    reasoning_input = {
+        "incident_id": incident["incident_id"],
+        "application_id": incident["application_id"],
+        "environment": incident["environment"],
+        "region": incident["region"],
+        "reported_symptoms": incident.get("reported_symptoms", []),
+        "application_context": incident.get("application_context", {}),
+        "agent_findings": incident.get("agent_findings", []),
+        "evidence": incident.get("evidence", []),
+        "open_questions": incident.get("open_questions", []),
+    }
+
+    return reasoning_input
+
+
 def create_incident(event):
     application_id = event.get("application_id")
     if not application_id:
@@ -320,7 +349,11 @@ def lambda_handler(event, context):
 
     operation = event.get("operation", "create_incident")
 
-    if operation not in {"create_incident", "investigate_incident"}:
+    if operation not in {
+        "create_incident",
+        "investigate_incident",
+        "build_reasoning_input",
+    }:
         return {
             "statusCode": 400,
             "body": json.dumps({
@@ -328,6 +361,7 @@ def lambda_handler(event, context):
                 "supported_operations": [
                     "create_incident",
                     "investigate_incident",
+                    "build_reasoning_input",
                 ],
             }),
         }
@@ -345,14 +379,24 @@ def lambda_handler(event, context):
 
         incident_id = event.get("incident_id")
         if not incident_id:
-            raise ValueError("incident_id is required for investigate_incident")
+            raise ValueError(f"incident_id is required for {operation}")
 
-        incident = investigate_incident(incident_id)
+        if operation == "investigate_incident":
+            incident = investigate_incident(incident_id)
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "message": "Incident investigation completed",
+                    "incident": incident,
+                }, default=str),
+            }
+
+        reasoning_input = build_reasoning_input(incident_id)
         return {
             "statusCode": 200,
             "body": json.dumps({
-                "message": "Incident investigation completed",
-                "incident": incident,
+                "message": "Reasoning input built",
+                "reasoning_input": reasoning_input,
             }, default=str),
         }
 

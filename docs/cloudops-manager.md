@@ -61,7 +61,7 @@ The initial deterministic plan delegates investigation to existing specialists:
 - Observability Agent: `investigate_logs`
 - Observability Agent: `get_metrics`
 - Observability Agent: `get_alarms` when CloudWatch is mentioned
-- Storage Agent: `investigate_storage`
+- Storage Agent: `investigate_all` (runs the S3, DynamoDB, and EventBridge investigations within the Storage Agent)
 
 The Manager does not perform those investigations itself.
 
@@ -110,7 +110,7 @@ The Manager now supports `investigate_incident`.
 It reads the incident from DynamoDB and delegates pending plan tasks to the existing specialist Lambdas:
 
 - Observability: `investigate_logs`, `get_metrics`, `get_alarms`
-- Storage: `investigate_storage`
+- Storage: `investigate_all`
 
 Each specialist receives the incident context and returns its evidence contract. The Manager records delegation status, agent findings, compact evidence, and task status back into the shared incident item.
 
@@ -158,3 +158,18 @@ Manager
 ```
 
 Bedrock reasoning comes after this deterministic orchestration path is proven.
+
+
+## AWS validation checkpoint — 2026-09-22
+
+The incident `INC-F70EC79C` was persisted successfully and the Manager completed all three Observability delegations:
+
+- `TASK-001` → `investigate_logs` → completed
+- `TASK-002` → `get_metrics` → completed
+- `TASK-003` → `get_alarms` → completed
+
+The same DynamoDB item also persisted three Observability agent findings and three compact evidence records.
+
+The Storage delegation exposed an integration mismatch: the Manager originally requested `investigate_storage`, while the deployed Storage Agent accepts `investigate_s3`, `investigate_dynamodb`, `investigate_eventbridge`, and `investigate_all`. This caused `TASK-004` to fail with HTTP-style status 400. The Manager has now been corrected to request `investigate_all`.
+
+A new incident investigation must be run after deploying the updated Manager to validate Storage Agent findings and evidence end-to-end.

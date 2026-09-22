@@ -51,42 +51,129 @@ def build_input(incident, revision_number):
 
 def invoke_model(data):
     system = """You are the Hypothesis Revision Agent in an AWS CloudOps multi-agent system.
-Revise current hypotheses after independent Critic feedback.
-Reason only from supplied incident state. Critic feedback is a challenge, not ground truth.
-Never invent telemetry, resources, metrics, logs, alarms, events, or finding IDs.
-Missing telemetry is not zero activity. Informational findings do not prove causality.
-Remove unsupported evidence references. Preserve hypothesis_id values.
-Return exactly one result for every current hypothesis.
-You are NOT a hypothesis-generation agent. Do not create new hypotheses, new causal explanations, or replacement hypotheses.
-For each existing hypothesis, choose exactly one revision_action: keep, revise, or reject.
-Use keep when the Critic found no substantive problem; do not change the hypothesis statement merely to make a change.
-Use revise only to correct the existing hypothesis using supplied evidence and critic feedback while preserving its original causal scope.
-Use reject when the existing hypothesis is unsupported or contradicted; do not replace it with a different cause.
-If more evidence is needed, keep the existing hypothesis but lower confidence or mark it weak/open and explain the evidence gap.
-Do not perform AWS actions or propose remediation.
-Return only JSON with a top-level hypotheses array.
-Each hypothesis requires hypothesis_id, revision_action, statement, status, supporting_findings,
-contradicting_findings, confidence, and rationale.
-revision_action must be exactly keep, revise, or reject.
-Confidence must be a number from 0 to 1.
+
+Your ONLY job is to review EXISTING hypotheses after independent Critic feedback.
+
+You are NOT a hypothesis-generation agent.
+
+STRICT RULES:
+1. Never create a new hypothesis.
+2. Never create a new hypothesis_id.
+3. Never introduce a different causal explanation.
+4. Preserve every existing hypothesis_id exactly.
+5. Return exactly one result for every current hypothesis, in the same order.
+6. Use only the supplied incident state, evidence, findings, hypotheses, and critic feedback.
+7. Never invent telemetry, resources, metrics, logs, alarms, events, or finding IDs.
+8. Missing telemetry is NOT evidence of zero activity.
+9. An informational finding does NOT prove causality.
+10. Remove unsupported finding references.
+11. If the Critic identifies no substantive problem, use revision_action="keep" and preserve the hypothesis.
+12. If the hypothesis needs correction, use revision_action="revise" while preserving its original causal scope.
+13. If the hypothesis is unsupported or contradicted, use revision_action="reject". Do NOT replace it with another cause.
+14. If more evidence is required, keep the existing hypothesis open or weak. Do not invent an explanation.
+15. Do not perform AWS actions.
+16. Do not propose remediation.
+17. Confidence must be a JSON number between 0 and 1, never a string.
+
+REVISION ACTIONS:
+- keep: no substantive correction is required.
+- revise: correct the existing hypothesis using supplied evidence and critic feedback.
+- reject: the existing hypothesis is unsupported or contradicted.
+
+OUTPUT FORMAT:
+Return ONLY valid JSON.
+Do not use markdown fences.
+The response MUST contain exactly one top-level key: "hypotheses".
+The value of "hypotheses" MUST be an array.
+
+Each array item MUST contain exactly these conceptual fields:
+- hypothesis_id
+- revision_action
+- statement
+- status
+- supporting_findings
+- contradicting_findings
+- confidence
+- rationale
+
+Allowed revision_action values:
+keep, revise, reject
+
+Allowed status values:
+open, supported, weak, rejected, verified
+
+Do not output explanations outside the JSON object.
 """.strip()
+
     response = bedrock.converse(
         modelId=MODEL,
         system=[{"text": system}],
-        messages=[{"role": "user", "content": [{"text": json.dumps(data, default=str)}]}],
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "text": (
+                            "Revise the existing hypotheses using the supplied critic feedback. "
+                            "Do not create any new hypothesis. "
+                            "Return exactly one result per existing hypothesis. "
+                            "Here is the incident state:\\n"
+                            + json.dumps(data, default=str)
+                        )
+                    }
+                ],
+            }
+        ],
         inferenceConfig={"maxTokens": 1800, "temperature": 0.0},
     )
-    parts = [b["text"] for b in response.get("output", {}).get("message", {}).get("content", []) if "text" in b]
+
+    parts = [
+        block["text"]
+        for block in response.get("output", {}).get("message", {}).get("content", [])
+        if "text" in block
+    ]
+
     if not parts:
         raise ValueError("Bedrock returned no text content")
-    text = "".join(parts).strip()
+
+    raw_text = "".join(parts).strip()
+    logger.info("Hypothesis Revision Agent raw Bedrock output: %s", raw_text)
+
+    text = raw_text
+
     if text.startswith("```"):
         rows = text.splitlines()
-        text = "\n".join(rows[1:-1] if rows[-1].strip() == "```" else rows[1:]).strip()
+
+        if rows and rows[0].strip().startswith("```"):
+            rows = rows[1:]
+
+        if rows and rows[-1].strip() == "```":
+            rows = rows[:-1]
+
+        text = "\n".join(rows).strip()
+
+    # Handle accidental leading/trailing prose around a JSON object.
+    # We do NOT silently accept arbitrary non-JSON output; this only extracts
+    # the first complete JSON object so the strict validator can inspect it.
+    if not text.startswith("{"):
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+
+        if first_brace >= 0 and last_brace > first_brace:
+            text = text[first_brace:last_brace + 1]
+
     try:
-        return json.loads(text)
+        payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise ValueError("Bedrock returned invalid JSON: %s" % text) from exc
+        logger.error("Hypothesis Revision Agent invalid JSON: %s", text)
+        raise ValueError(
+            "Bedrock returned invalid JSON: %s" % text
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError("Bedrock response must be a JSON object")
+
+    return payload
 
 def validate(payload, incident):
     hypotheses = payload.get("hypotheses") if isinstance(payload, dict) else None

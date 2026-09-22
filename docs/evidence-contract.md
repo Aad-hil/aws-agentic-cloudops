@@ -1,10 +1,8 @@
 # Common Evidence Contract
 
-## Purpose
+All specialist CloudOps agents return evidence using the same top-level contract. The contract distinguishes observed facts, telemetry gaps, absence-only observations, configuration state, access checks, causal candidates, and contradictory facts.
 
-All specialist CloudOps agents return evidence using the same top-level contract so the CloudOps Manager can aggregate independent investigations without knowing each agent's internal implementation.
-
-## Contract
+## Top-level Contract
 
 ```json
 {
@@ -18,113 +16,105 @@ All specialist CloudOps agents return evidence using the same top-level contract
 }
 ```
 
-## Fields
+## Finding Contract
 
-| Field | Type | Required | Description |
-|---|---|---:|---|
-| application_id | string | yes | Application being investigated |
-| agent | string | yes | Specialist producing the evidence |
-| investigation_type | string | yes | Type of investigation performed |
-| collected_at | string | yes | UTC ISO-8601 collection timestamp |
-| resources_discovered | array | yes | Flat list of registry resources discovered by the agent |
-| findings | array | yes | Normalized factual findings |
-| evidence | object | yes | Raw/service-specific evidence |
-
-Each item in `resources_discovered` preserves the registry resource object, for example:
+Every finding should contain:
 
 ```json
 {
-  "resource_id": "customer-analytics-data",
-  "service": "dynamodb",
-  "role": "application-database"
-}
-```
-
-## Findings format
-
-Each finding should be factual and traceable to evidence.
-
-Example:
-
-```json
-{
-  "finding_id": "storage-001",
+  "finding_id": "example-finding-id",
   "severity": "info",
-  "resource_id": "customer-analytics-data",
-  "service": "dynamodb",
-  "category": "table_status",
-  "summary": "DynamoDB table status is ACTIVE",
-  "evidence_ref": "evidence.dynamodb[0].table_status"
+  "finding_type": "telemetry_observation",
+  "evidence_semantics": "observed_fact",
+  "summary": "Example factual observation.",
+  "evidence_ref": "evidence.example"
 }
 ```
 
-Allowed severity values for now:
+Required: `finding_id`, `severity`, `finding_type`, `evidence_semantics`, `summary`.
 
-- info
-- warning
-- error
-- critical
+Allowed severity values: `info`, `warning`, `error`, `critical`.
 
-The specialist agent reports facts. It does not make root-cause or remediation decisions.
+## Evidence Semantics
 
-## Agent names
+### observed_fact
+A directly observed factual condition.
 
-Current specialists:
+### absence_only
+A query returned no observed activity, such as zero CloudWatch log events. This does not prove that the underlying activity did not occur and MUST NOT be used as causal evidence.
 
-- `observability-agent`
-- `storage-agent`
+### telemetry_gap
+A telemetry query returned no datapoints or otherwise could not establish underlying activity. It is not numeric zero and MUST NOT support or contradict a causal hypothesis.
 
-Future agents should use the same contract.
+### configuration_state
+A configured or administrative state such as EventBridge ENABLED. Configuration state does not prove runtime behavior.
 
-## Design rule
+### access_observation
+The result of an explicit access or permission check. It applies only to the operation actually tested and does not prove every application operation succeeds.
 
-The contract separates:
+### causal_candidate
+A concrete observed failure that can reasonably be considered causal evidence, such as an application upload returning AccessDenied. It does not automatically establish root cause.
 
-- **findings** — normalized facts useful to the orchestrator
-- **evidence** — detailed raw observations returned by AWS tools
+### contradictory_fact
+An observed fact that directly conflicts with a hypothesis. Missing evidence is never contradictory evidence.
 
-This allows the Manager, Root Cause Agent, Critic Agent, and Remediation Planner to consume evidence consistently without depending on service-specific response shapes.
+## Semantic Rules
 
-## Example
+The following inferences are invalid:
 
-```json
-{
-  "application_id": "customer-analytics",
-  "agent": "storage-agent",
-  "investigation_type": "storage_investigation",
-  "collected_at": "2026-09-21T19:07:27.876050+00:00",
-  "resources_discovered": [
-    {
-      "resource_id": "customer-analytics-upload-aadhil-poc",
-      "service": "s3",
-      "role": "application-storage"
-    },
-    {
-      "resource_id": "customer-analytics-data",
-      "service": "dynamodb",
-      "role": "application-database"
-    },
-    {
-      "resource_id": "customer-analytics-s3-upload",
-      "service": "eventbridge",
-      "role": "event-routing"
-    }
-  ],
-  "findings": [
-    {
-      "finding_id": "storage-001",
-      "severity": "info",
-      "resource_id": "customer-analytics-data",
-      "service": "dynamodb",
-      "category": "table_status",
-      "summary": "DynamoDB table status is ACTIVE",
-      "evidence_ref": "evidence.dynamodb[0].table_status"
-    }
-  ],
-  "evidence": {
-    "s3": [],
-    "dynamodb": [],
-    "eventbridge": []
-  }
-}
+```text
+no CloudWatch logs -> Lambda was not invoked
+no invocation datapoints -> Lambda had zero invocations
+EventBridge no_data -> EventBridge did not trigger
+EventBridge ENABLED -> EventBridge successfully delivered events
+S3 accessible to investigation role -> application uploads cannot fail
 ```
+
+## Finding IDs
+
+Finding IDs should describe the observation, not an inferred conclusion.
+
+Good:
+```text
+lambda-api-invocations-no-data
+lambda-api-logs-no-events
+eventbridge-upload-enabled
+eventbridge-upload-pattern-validation
+s3-upload-access-denied
+```
+
+Avoid conclusion-based IDs such as `lambda-api-not-invoked`, `eventbridge-broken`, or `s3-permission-root-cause` unless the underlying investigation actually established those facts.
+
+## Specialist Responsibility
+
+Specialist agents discover registered resources, collect service telemetry, report factual findings, assign evidence semantics, preserve evidence gaps, and avoid unsupported causal conclusions.
+
+Specialists do not select root cause or perform remediation.
+
+## Manager Responsibility
+
+The CloudOps Manager validates finding references and prevents absence-only, telemetry-gap, configuration-state, and access-observation findings from being treated as causal evidence.
+
+## Reasoning Layer
+
+The reasoning layer may generate multiple hypotheses and identify evidence gaps. It MUST NOT treat missing telemetry as zero, treat absence as causation, treat configuration as runtime behavior, invent telemetry failures, invent finding IDs, or claim root cause without sufficient evidence.
+
+## Root Cause Flow
+
+```text
+Specialist Evidence
+        |
+        v
+Hypotheses
+        |
+        v
+Critic
+        |
+        v
+Hypothesis Revision
+        |
+        v
+Root Cause Assessment
+```
+
+Root cause remains unsupported when the evidence does not establish a meaningful causal connection.

@@ -411,9 +411,7 @@ Strict rules:
 
     user_prompt = (
         "Analyze this incident using only the supplied evidence. "
-        "Return hypotheses that could explain the reported symptoms.
-
-"
+        "Return hypotheses that could explain the reported symptoms.\n\n"
         + json.dumps(reasoning_input, default=str)
     )
 

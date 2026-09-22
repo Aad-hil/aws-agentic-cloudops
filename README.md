@@ -94,11 +94,14 @@ Application telemetry
 - [x] Incident creation
 - [x] Investigation planning
 - [x] Specialist delegation framework
-- [ ] Complete evidence aggregation across all specialists
+- [x] Complete evidence aggregation across all specialists
 - [x] Incident lifecycle/state transitions
 - [x] Manager → Observability Agent delegation
-- [x] Manager → Storage Agent delegation attempted
+- [x] Manager → Storage Agent delegation
 - [x] Investigation plan task status persisted in DynamoDB
+- [x] Four specialist tasks completed in a clean end-to-end run
+- [x] Four agent evidence records persisted
+- [x] Storage Agent S3 + DynamoDB + EventBridge evidence aggregated
 
 Current validation checkpoint:
 - Incident `INC-F70EC79C` is persisted in DynamoDB.
@@ -186,7 +189,7 @@ Use environment variables, IAM roles, AWS Secrets Manager, or other appropriate 
 
 The target application, Application Registry, Observability Agent, Storage Agent, Common Evidence Contract, Incident State table, and CloudOps Manager v1 are implemented.
 
-The Manager has been validated in AWS through incident creation, investigation planning, specialist delegation, and persisted Observability findings/evidence. One Storage integration mismatch was found and corrected in GitHub. The next checkpoint is to deploy the corrected Manager and confirm Storage findings/evidence are persisted before building the reasoning layer.
+The Manager has been validated in AWS through a clean end-to-end incident investigation. All four specialist tasks completed, findings were persisted from both Observability and Storage Agents, and four compact evidence records were aggregated into shared incident state. Phase 4 is complete. The next phase is the reasoning layer: Bedrock-assisted hypothesis generation, evidence analysis, and hypothesis validation.
 
 ## Status
 

@@ -110,7 +110,7 @@ Current validation checkpoint:
 - Storage `TASK-004` failed because the Manager requested `investigate_storage`, while the deployed Storage Agent accepts `investigate_s3`, `investigate_dynamodb`, `investigate_eventbridge`, and `investigate_all`.
 - The Manager has been corrected to use `investigate_all`; the next AWS test must be run after deploying that change.
 
-### Phase 5 — Multi-Agent Reasoning
+### Phase 5 — Multi-Agent Reasoning — IN PROGRESS
 
 - [ ] Agent-to-agent communication
 - [ ] Evidence synthesis
@@ -194,3 +194,6 @@ The Manager has been validated in AWS through a clean end-to-end incident invest
 ## Status
 
 POC in active development.
+
+
+Phase 5 has started with `docs/reasoning-contract.md`. Next: deterministic reasoning-input builder, then Bedrock structured hypothesis generation.

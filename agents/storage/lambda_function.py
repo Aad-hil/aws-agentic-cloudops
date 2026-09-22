@@ -1058,23 +1058,22 @@ def build_findings(
             matched = pattern_validation.get(
                 "matched"
             )
-
-            findings.append({
-                "finding_id": (
+            findings.append(dict(
+                finding_id=(
                     f"eventbridge-{resource_id}-"
                     "pattern-validation"
                 ),
-                "severity": "info",
-                "resource_id": resource_id,
-                "service": "eventbridge",
-                "category": "pattern_validation",
-                "summary": (
+                severity="info",
+                resource_id=resource_id,
+                service="eventbridge",
+                category="pattern_validation",
+                summary=(
                     "Registered EventBridge event "
                     "pattern was successfully evaluated "
                     f"against the representative S3 event "
                     f"(matched={matched})"
                 ),
-                "evidence_ref": (
+                evidence_ref=(
                     "evidence.eventbridge"
                 )
             )
